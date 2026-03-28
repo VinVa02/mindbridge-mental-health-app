@@ -35,17 +35,29 @@ function updateResources(riskLevel, emotion) {
       "Contact a mental health professional immediately",
       "If in danger, call emergency services or crisis hotline"
     ];
-  } else if (emotion === "sad") {
+  } else if (emotion === "sadness") {
     resources = [
       "Try journaling for 5 minutes",
       "Take a short walk outside",
       "Talk to someone you trust"
     ];
-  } else if (emotion === "anxious") {
+  } else if (emotion === "anxiety") {
     resources = [
       "Practice box breathing for 2 minutes",
       "Step away from screens briefly",
       "Ground yourself using 5-4-3-2-1 technique"
+    ];
+  } else if (emotion === "anger") {
+    resources = [
+      "Pause before reacting",
+      "Take a few deep breaths",
+      "Step away for a short break"
+    ];
+  } else if (emotion === "stress") {
+    resources = [
+      "Break one task into smaller steps",
+      "Drink water and stretch for 2 minutes",
+      "Write down the top 3 things on your mind"
     ];
   } else {
     resources = [
