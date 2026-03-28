@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MindBridge</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-container">
+    
+    <section class="chat-section">
+      <header class="chat-header">
+        <h1>MindBridge</h1>
+        <p>Your mental wellness support space</p>
+      </header>
+
+      <div id="chat-box" class="chat-box">
+        <div class="message bot">
+          <div class="bubble">
+            Hi, I’m here with you. How are you feeling today?
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <button id="mic-btn" class="icon-btn">🎤</button>
+        <input
+          type="text"
+          id="message-input"
+          placeholder="Type your thoughts here..."
+        />
+        <button id="send-btn" class="send-btn">Send</button>
+      </div>
+
+      <div class="audio-controls">
+        <button id="play-audio-btn" class="audio-btn">🔊 Play Last Reply</button>
+      </div>
+    </section>
+
+    <aside class="side-panel">
+      <div class="panel-card">
+        <h2>Current Mood</h2>
+        <p id="mood-value">Unknown</p>
+      </div>
+
+      <div class="panel-card">
+        <h2>Risk Level</h2>
+        <p id="risk-value">Low</p>
+      </div>
+
+      <div class="panel-card">
+        <h2>Helpful Resources</h2>
+        <ul id="resource-list">
+          <li>Take 3 slow deep breaths</li>
+          <li>Drink water</li>
+          <li>Write down one thing bothering you</li>
+        </ul>
+      </div>
+    </aside>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
