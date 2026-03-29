@@ -1,19 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MindBridge</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <div class="app-shell">
     <aside class="chat-sidebar">
-      <div class="sidebar-header">
-        <div>
+      <div class="sidebar-top">
+        <div class="brand-block">
           <p class="sidebar-label">MindBridge</p>
           <h2>Chats</h2>
         </div>
+
         <button id="new-chat-btn" class="new-chat-btn">+ New Chat</button>
       </div>
 
@@ -23,13 +26,24 @@
     <main class="main-panel">
       <section class="chat-section">
         <header class="chat-header">
-          <div>
+          <div class="chat-title-wrap">
             <h1>MindBridge</h1>
             <p>Your mental wellness support space</p>
           </div>
+
+          <div class="status-badge" id="recording-status">Idle</div>
         </header>
 
         <div id="chat-box" class="chat-box">
+          <div class="chat-welcome">
+            <div class="welcome-badge">MindBridge</div>
+            <h2>How are you feeling today?</h2>
+            <p>
+              You can type or speak. I’ll listen, respond supportively,
+              and suggest helpful resources when relevant.
+            </p>
+          </div>
+
           <div class="message bot">
             <div class="bubble">
               Hi, I’m here with you. How are you feeling today?
@@ -37,25 +51,23 @@
           </div>
         </div>
 
-        <div class="composer">
-          <div class="input-wrapper">
-            <input
-              type="text"
-              id="message-input"
-              placeholder="Type what’s on your mind..."
-            />
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="input-wrapper">
+              <textarea id="message-input" rows="1" placeholder="Message MindBridge..."></textarea>
+            </div>
+
+            <button id="voice-chat-btn" class="icon-btn voice-btn" title="Voice chat">
+              <span class="icon">🎤</span>
+            </button>
+
+            <button id="send-btn" class="send-btn">Send</button>
           </div>
 
-          <button id="voice-chat-btn" class="icon-btn voice-btn" title="Voice chat">
-            <span class="icon">🎤</span>
-          </button>
-
-          <button id="send-btn" class="send-btn">Send</button>
+          <p class="helper-text">
+            Tap the mic to speak for 5 seconds and get a spoken reply.
+          </p>
         </div>
-
-        <p class="helper-text" id="recording-status">
-          Voice ready
-        </p>
       </section>
 
       <aside class="side-panel">
@@ -71,10 +83,16 @@
 
         <div class="panel-card resources-card">
           <div class="resources-header">
-            <p class="panel-label">Helpful Resources</p>
+            <div>
+              <p class="panel-label">Helpful Resources</p>
+              <p class="resources-subtext">Matched to the active conversation</p>
+            </div>
           </div>
-          <div id="resource-list" class="resource-list">
-            <div class="resource-empty">Resources will appear based on the conversation.</div>
+
+          <div id="resource-groups" class="resource-groups">
+            <div class="empty-resource-state">
+              Resources matched to the current conversation will appear here.
+            </div>
           </div>
         </div>
       </aside>
@@ -83,4 +101,5 @@
 
   <script src="script.js"></script>
 </body>
+
 </html>
