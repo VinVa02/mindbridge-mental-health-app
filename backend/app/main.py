@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import chat_collection
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
+from app.services.gemini_service import generate_support_reply
 
 app = FastAPI(title="MindBridge API")
 
@@ -38,11 +39,24 @@ def chat(payload: ChatRequest):
 
     result = analyze_message(message)
 
+    # Keep rule-based reply for high-risk cases
+    if result["risk_level"] == "high":
+        final_reply = result["reply"]
+    else:
+        try:
+            final_reply = generate_support_reply(
+                user_message=message,
+                emotion=result["emotion"],
+                risk_level=result["risk_level"]
+            )
+        except Exception:
+            final_reply = result["reply"]
+
     chat_document = {
         "user_message": message,
         "emotion": result["emotion"],
         "risk_level": result["risk_level"],
-        "reply": result["reply"],
+        "reply": final_reply,
         "created_at": datetime.now(timezone.utc)
     }
 
@@ -53,7 +67,7 @@ def chat(payload: ChatRequest):
         "user_message": message,
         "emotion": result["emotion"],
         "risk_level": result["risk_level"],
-        "reply": result["reply"],
+        "reply": final_reply,
         "timestamp": chat_document["created_at"].isoformat()
     }
 
