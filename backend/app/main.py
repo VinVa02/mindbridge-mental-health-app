@@ -1,12 +1,19 @@
 from datetime import datetime, timezone
+from io import BytesIO
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from app.database import chat_collection
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
 from app.services.gemini_service import generate_support_reply
+from app.services.elevenlabs_service import (
+    generate_tts_audio,
+    transcribe_audio,
+    convert_speech_to_speech,
+)
 
 app = FastAPI(title="MindBridge API")
 
@@ -39,7 +46,6 @@ def chat(payload: ChatRequest):
 
     result = analyze_message(message)
 
-    # Keep rule-based reply for high-risk cases
     if result["risk_level"] == "high":
         final_reply = result["reply"]
     else:
@@ -87,3 +93,47 @@ def get_chats():
         })
 
     return {"chats": chats}
+
+
+@app.post("/api/tts")
+def text_to_speech(text: str = Form(...)):
+    if not text.strip():
+        return JSONResponse(status_code=400, content={"error": "Text is required"})
+
+    audio_bytes = generate_tts_audio(text.strip())
+
+    return StreamingResponse(
+        BytesIO(audio_bytes),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "inline; filename=reply.mp3"}
+    )
+
+
+@app.post("/api/stt")
+async def speech_to_text(file: UploadFile = File(...)):
+    file_bytes = await file.read()
+
+    if not file_bytes:
+        return JSONResponse(status_code=400, content={"error": "Audio file is required"})
+
+    transcript = transcribe_audio(file.filename or "audio.webm", file_bytes)
+
+    return {
+        "transcript": transcript
+    }
+
+
+@app.post("/api/sts")
+async def speech_to_speech(file: UploadFile = File(...)):
+    file_bytes = await file.read()
+
+    if not file_bytes:
+        return JSONResponse(status_code=400, content={"error": "Audio file is required"})
+
+    audio_bytes = convert_speech_to_speech(file.filename or "audio.webm", file_bytes)
+
+    return StreamingResponse(
+        BytesIO(audio_bytes),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "inline; filename=converted.mp3"}
+    )
