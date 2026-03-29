@@ -9,7 +9,7 @@ const recordingStatus = document.getElementById("recording-status");
 
 const moodValue = document.getElementById("mood-value");
 const riskValue = document.getElementById("risk-value");
-const resourceList = document.getElementById("resource-list");
+const resourceGroups = document.getElementById("resource-groups");
 
 let activeSessionId = null;
 let mediaRecorder = null;
@@ -46,53 +46,43 @@ function renderMessages(messages) {
   });
 }
 
-function updateResources(riskLevel, emotion) {
-  resourceList.innerHTML = "";
+function renderResourceGroups(groups) {
+  resourceGroups.innerHTML = "";
 
-  let resources = [];
-
-  if (riskLevel === "high") {
-    resources = [
-      "Reach out to a trusted friend or family member",
-      "Contact a mental health professional immediately",
-      "If in danger, call emergency services or a crisis hotline"
-    ];
-  } else if (emotion === "sadness") {
-    resources = [
-      "Try journaling for 5 minutes",
-      "Take a short walk outside",
-      "Talk to someone you trust"
-    ];
-  } else if (emotion === "anxiety") {
-    resources = [
-      "Practice box breathing for 2 minutes",
-      "Step away from screens briefly",
-      "Ground yourself using the 5-4-3-2-1 technique"
-    ];
-  } else if (emotion === "anger") {
-    resources = [
-      "Pause before reacting",
-      "Take 5 slow breaths",
-      "Step away for a short break"
-    ];
-  } else if (emotion === "stress") {
-    resources = [
-      "Break one task into smaller steps",
-      "Drink water and stretch",
-      "Write down the top 3 things on your mind"
-    ];
-  } else {
-    resources = [
-      "Take 3 slow deep breaths",
-      "Drink water",
-      "Write down one thing bothering you"
-    ];
+  if (!groups || groups.length === 0) {
+    resourceGroups.innerHTML = `
+      <div class="empty-resource-state">
+        Resources matched to the current conversation will appear here.
+      </div>
+    `;
+    return;
   }
 
-  resources.forEach((item) => {
-    const li = document.createElement("li");
-    li.textContent = item;
-    resourceList.appendChild(li);
+  groups.forEach((group) => {
+    const groupWrapper = document.createElement("div");
+    groupWrapper.classList.add("resource-group");
+
+    const title = document.createElement("div");
+    title.classList.add("resource-group-title");
+    title.textContent = group.group;
+
+    groupWrapper.appendChild(title);
+
+    group.items.forEach((item) => {
+      const card = document.createElement("div");
+      card.classList.add("resource-card");
+
+      card.innerHTML = `
+        <a class="resource-link" href="${item.url}" target="_blank" rel="noopener noreferrer">
+          ${item.title}
+        </a>
+        <div class="resource-description">${item.description || ""}</div>
+      `;
+
+      groupWrapper.appendChild(card);
+    });
+
+    resourceGroups.appendChild(groupWrapper);
   });
 }
 
@@ -143,10 +133,11 @@ async function loadSessionMessages(sessionId) {
     if (lastBotMessage) {
       moodValue.textContent = lastBotMessage.emotion || "unknown";
       riskValue.textContent = lastBotMessage.risk_level || "low";
-      updateResources(
-        lastBotMessage.risk_level || "low",
-        lastBotMessage.emotion || "unknown"
-      );
+      renderResourceGroups(lastBotMessage.resources || []);
+    } else {
+      moodValue.textContent = "Unknown";
+      riskValue.textContent = "Low";
+      renderResourceGroups([]);
     }
   } catch (error) {
     console.error("Failed to load session messages:", error);
@@ -248,7 +239,7 @@ async function sendMessage() {
 
     moodValue.textContent = data.emotion || "unknown";
     riskValue.textContent = data.risk_level || "low";
-    updateResources(data.risk_level || "low", data.emotion || "unknown");
+    renderResourceGroups(data.resources || []);
 
     recordingStatus.textContent = "Idle";
   } catch (error) {
@@ -280,7 +271,7 @@ async function handleVoiceChat(audioBlob) {
 
     moodValue.textContent = data.emotion || "unknown";
     riskValue.textContent = data.risk_level || "low";
-    updateResources(data.risk_level || "low", data.emotion || "unknown");
+    renderResourceGroups(data.resources || []);
 
     recordingStatus.textContent = "Playing audio reply...";
     await playTtsAudio(data.reply || "I’m here with you.");
@@ -349,7 +340,7 @@ newChatBtn.addEventListener("click", async () => {
   addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
   moodValue.textContent = "Unknown";
   riskValue.textContent = "Low";
-  updateResources("low", "unknown");
+  renderResourceGroups([]);
   messageInput.value = "";
   await loadSessions();
 });
@@ -367,4 +358,4 @@ voiceChatBtn.addEventListener("click", async () => {
 });
 
 loadSessions();
-updateResources("low", "unknown");
+renderResourceGroups([]);
