@@ -14,4 +14,6 @@ client = MongoClient(MONGODB_URI)
 db = client[MONGODB_DB_NAME]
 
 chat_collection = db["chats"]
+chat_session_collection = db["chat_sessions"]
 resource_collection = db["resources"]
+resource_chunk_collection = db["resource_chunks"]
