@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 from io import BytesIO
 
-from bson import ObjectId
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.database import chat_session_collection, resource_collection
+from app.services.resource_service import get_matching_resources
+from app.services.mood_service import assess_mood_with_gemini
+from app.database import chat_collection, resource_collection
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
 from app.services.elevenlabs_service import (
@@ -133,43 +135,6 @@ def chat(payload: ChatRequest):
         final_reasoning = "Fallback analyzer used."
         final_reply = fallback["reply"]
 
-    # Step 2: retrieve relevant chunks from RAG
-    retrieved_chunks = []
-    used_titles = []
-    resources = []
-
-    try:
-        retrieved_chunks = retrieve_relevant_chunks(message, top_k=4)
-        print(f"DEBUG /api/chat retrieved chunks: {len(retrieved_chunks)}")
-
-        if retrieved_chunks:
-            grounded = generate_grounded_reply(
-                user_message=message,
-                mood=final_emotion,
-                risk_level=final_risk,
-                retrieved_chunks=retrieved_chunks
-            )
-
-            if getattr(grounded, "reply", None):
-                final_reply = grounded.reply
-
-            used_titles = getattr(grounded, "used_titles", []) or [
-                chunk.get("title") for chunk in retrieved_chunks if chunk.get("title")
-            ]
-
-            resources = get_resources_by_titles(used_titles)
-
-    except Exception as e:
-        print("DEBUG /api/chat RAG grounding failed:", repr(e))
-
-    # Step 3: fallback resource matching if RAG resource lookup is empty
-    if not resources:
-        try:
-            resources = get_matching_resources(final_emotion, final_risk)
-        except Exception as e:
-            print("DEBUG /api/chat fallback resource match failed:", repr(e))
-            resources = []
-
     timestamp = datetime.now(timezone.utc)
 
     user_message_doc = {
@@ -189,9 +154,6 @@ def chat(payload: ChatRequest):
         "intensity": final_intensity,
         "risk_level": final_risk,
         "reasoning": final_reasoning,
-        "resources": resources,
-        "used_titles": used_titles,
-        "retrieved_chunks": summarize_retrieved_chunks(retrieved_chunks),
         "timestamp": timestamp
     }
 
@@ -243,90 +205,23 @@ def chat(payload: ChatRequest):
         "risk_level": final_risk,
         "reasoning": final_reasoning,
         "reply": final_reply,
-        "resources": resources,
-        "used_resources": used_titles,
-        "retrieved_chunks": summarize_retrieved_chunks(retrieved_chunks),
         "timestamp": timestamp.isoformat()
     }
 
 
-@app.get("/api/resources")
-def get_resources():
-    resources = []
+@app.get("/api/chats")
+def get_chats():
+    chats = []
 
-    for item in resource_collection.find():
-        resources.append(serialize_resource(item))
-
-    return {"resources": resources}
-
-
-@app.get("/api/chat-sessions")
-def get_chat_sessions():
-    sessions = []
-
-    for session in chat_session_collection.find(
-        {"archived": {"$ne": True}}
-    ).sort("updated_at", -1):
-        sessions.append({
-            "id": str(session["_id"]),
-            "title": session.get("title", "New Chat"),
-            "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
-            "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
-            "message_count": len(session.get("messages", []))
+    for chat in chat_collection.find().sort("created_at", -1):
+        chats.append({
+            "id": str(chat["_id"]),
+            "user_message": chat["user_message"],
+            "emotion": chat["emotion"],
+            "risk_level": chat["risk_level"],
+            "reply": chat["reply"],
+            "timestamp": chat["created_at"].isoformat() if chat.get("created_at") else None
         })
-
-    return {"sessions": sessions}
-
-
-@app.get("/api/chat-sessions/{session_id}")
-def get_chat_session(session_id: str):
-    try:
-        session = chat_session_collection.find_one({
-            "_id": ObjectId(session_id),
-            "archived": {"$ne": True}
-        })
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
-
-    if not session:
-        return JSONResponse(status_code=404, content={"error": "Session not found"})
-
-    messages = []
-    for msg in session.get("messages", []):
-        messages.append({
-            "sender": msg["sender"],
-            "text": msg["text"],
-            "emotion": msg.get("emotion"),
-            "intensity": msg.get("intensity"),
-            "risk_level": msg.get("risk_level"),
-            "reasoning": msg.get("reasoning"),
-            "resources": msg.get("resources", []),
-            "used_titles": msg.get("used_titles", []),
-            "retrieved_chunks": msg.get("retrieved_chunks", []),
-            "timestamp": msg["timestamp"].isoformat() if msg.get("timestamp") else None
-        })
-
-    return {
-        "id": str(session["_id"]),
-        "title": session.get("title", "New Chat"),
-        "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
-        "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
-        "messages": messages
-    }
-
-
-@app.patch("/api/chat-sessions/{session_id}/archive")
-def archive_chat_session(session_id: str):
-    try:
-        result = chat_session_collection.update_one(
-            {"_id": ObjectId(session_id)},
-            {"$set": {"archived": True, "updated_at": datetime.now(timezone.utc)}}
-        )
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
-
-    if result.matched_count == 0:
-        return JSONResponse(status_code=404, content={"error": "Session not found"})
 
     return {"message": "Session archived successfully"}
 
