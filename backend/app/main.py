@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
 from io import BytesIO
 
-from bson import ObjectId
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.database import chat_session_collection, resource_collection
 from app.services.resource_service import get_matching_resources
 from app.services.mood_service import assess_mood_with_gemini
+from app.database import chat_collection, resource_collection
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
 from app.services.elevenlabs_service import (
@@ -16,6 +16,10 @@ from app.services.elevenlabs_service import (
     transcribe_audio,
     convert_speech_to_speech,
 )
+from app.services.grounded_chat_service import generate_grounded_reply
+from app.services.mood_service import assess_mood_with_gemini
+from app.services.rag_service import retrieve_relevant_chunks
+from app.services.resource_service import get_matching_resources
 
 print("DEBUG: main.py loaded")
 
@@ -31,6 +35,59 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def serialize_resource(item):
+    return {
+        "id": str(item["_id"]),
+        "title": item.get("title", ""),
+        "type": item.get("type", item.get("source_type", "resource")),
+        "url": item.get("url", item.get("source_url", "")),
+        "file_name": item.get("file_name", ""),
+        "description": item.get("description", ""),
+        "moods": item.get("moods", item.get("topic_tags", [])),
+        "risk_levels": item.get("risk_levels", item.get("risk_tags", [])),
+    }
+
+
+def get_resources_by_titles(titles: list[str]):
+    if not titles:
+        return []
+
+    seen = set()
+    ordered_titles = []
+
+    for title in titles:
+        if title and title not in seen:
+            seen.add(title)
+            ordered_titles.append(title)
+
+    results = []
+    cursor = resource_collection.find({"title": {"$in": ordered_titles}})
+
+    docs_by_title = {}
+    for doc in cursor:
+        docs_by_title[doc.get("title")] = serialize_resource(doc)
+
+    for title in ordered_titles:
+        if title in docs_by_title:
+            results.append(docs_by_title[title])
+
+    return results
+
+
+def summarize_retrieved_chunks(chunks: list[dict]):
+    results = []
+
+    for chunk in chunks:
+        results.append({
+            "title": chunk.get("title", ""),
+            "chunk_index": chunk.get("chunk_index"),
+            "score": chunk.get("score"),
+            "text_preview": (chunk.get("text", "")[:250] + "...") if chunk.get("text") else ""
+        })
+
+    return results
 
 
 @app.get("/")
@@ -51,6 +108,7 @@ def chat(payload: ChatRequest):
 
     fallback = analyze_message(message)
 
+    # Step 1: mood + risk assessment
     try:
         mood_result = assess_mood_with_gemini(message)
 
@@ -60,6 +118,7 @@ def chat(payload: ChatRequest):
         final_reasoning = mood_result.reasoning
         final_reply = mood_result.reply
 
+        # safety override from keyword analyzer
         if fallback["risk_level"] == "high":
             final_emotion = fallback["emotion"]
             final_intensity = 5
@@ -76,7 +135,6 @@ def chat(payload: ChatRequest):
         final_reasoning = "Fallback analyzer used."
         final_reply = fallback["reply"]
 
-    matching_resources = get_matching_resources(final_emotion, final_risk)
     timestamp = datetime.now(timezone.utc)
 
     user_message_doc = {
@@ -96,10 +154,10 @@ def chat(payload: ChatRequest):
         "intensity": final_intensity,
         "risk_level": final_risk,
         "reasoning": final_reasoning,
-        "resources": matching_resources,
         "timestamp": timestamp
     }
 
+    # Step 4: save to session
     if session_id:
         try:
             session_object_id = ObjectId(session_id)
@@ -147,94 +205,23 @@ def chat(payload: ChatRequest):
         "risk_level": final_risk,
         "reasoning": final_reasoning,
         "reply": final_reply,
-        "resources": matching_resources,
         "timestamp": timestamp.isoformat()
     }
 
 
-@app.get("/api/resources")
-def get_resources():
-    resources = []
+@app.get("/api/chats")
+def get_chats():
+    chats = []
 
-    for item in resource_collection.find():
-        resources.append({
-            "id": str(item["_id"]),
-            "title": item["title"],
-            "type": item["type"],
-            "url": item["url"],
-            "description": item.get("description", ""),
-            "moods": item.get("moods", []),
-            "risk_levels": item.get("risk_levels", [])
+    for chat in chat_collection.find().sort("created_at", -1):
+        chats.append({
+            "id": str(chat["_id"]),
+            "user_message": chat["user_message"],
+            "emotion": chat["emotion"],
+            "risk_level": chat["risk_level"],
+            "reply": chat["reply"],
+            "timestamp": chat["created_at"].isoformat() if chat.get("created_at") else None
         })
-
-    return {"resources": resources}
-
-
-@app.get("/api/chat-sessions")
-def get_chat_sessions():
-    sessions = []
-
-    for session in chat_session_collection.find(
-        {"archived": {"$ne": True}}
-    ).sort("updated_at", -1):
-        sessions.append({
-            "id": str(session["_id"]),
-            "title": session.get("title", "New Chat"),
-            "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
-            "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
-            "message_count": len(session.get("messages", []))
-        })
-
-    return {"sessions": sessions}
-
-
-@app.get("/api/chat-sessions/{session_id}")
-def get_chat_session(session_id: str):
-    try:
-        session = chat_session_collection.find_one({
-            "_id": ObjectId(session_id),
-            "archived": {"$ne": True}
-        })
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
-
-    if not session:
-        return JSONResponse(status_code=404, content={"error": "Session not found"})
-
-    messages = []
-    for msg in session.get("messages", []):
-        messages.append({
-            "sender": msg["sender"],
-            "text": msg["text"],
-            "emotion": msg.get("emotion"),
-            "intensity": msg.get("intensity"),
-            "risk_level": msg.get("risk_level"),
-            "reasoning": msg.get("reasoning"),
-            "resources": msg.get("resources", []),
-            "timestamp": msg["timestamp"].isoformat() if msg.get("timestamp") else None
-        })
-
-    return {
-        "id": str(session["_id"]),
-        "title": session.get("title", "New Chat"),
-        "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
-        "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
-        "messages": messages
-    }
-
-
-@app.patch("/api/chat-sessions/{session_id}/archive")
-def archive_chat_session(session_id: str):
-    try:
-        result = chat_session_collection.update_one(
-            {"_id": ObjectId(session_id)},
-            {"$set": {"archived": True, "updated_at": datetime.now(timezone.utc)}}
-        )
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
-
-    if result.matched_count == 0:
-        return JSONResponse(status_code=404, content={"error": "Session not found"})
 
     return {"message": "Session archived successfully"}
 
