@@ -3,7 +3,7 @@ from io import BytesIO
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.database import chat_collection
 from app.schemas import ChatRequest
@@ -21,7 +21,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://127.0.0.1:5500",
-        "http://localhost:5500"
+        "http://localhost:5500",
     ],
     allow_credentials=False,
     allow_methods=["*"],
@@ -97,16 +97,23 @@ def get_chats():
 
 @app.post("/api/tts")
 def text_to_speech(text: str = Form(...)):
-    if not text.strip():
+    text = text.strip()
+
+    if not text:
         return JSONResponse(status_code=400, content={"error": "Text is required"})
 
-    audio_bytes = generate_tts_audio(text.strip())
-
-    return StreamingResponse(
-        BytesIO(audio_bytes),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "inline; filename=reply.mp3"}
-    )
+    try:
+        audio_bytes = generate_tts_audio(text)
+        return StreamingResponse(
+            BytesIO(audio_bytes),
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=reply.mp3"}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"TTS failed: {str(e)}"}
+        )
 
 
 @app.post("/api/stt")
@@ -116,11 +123,14 @@ async def speech_to_text(file: UploadFile = File(...)):
     if not file_bytes:
         return JSONResponse(status_code=400, content={"error": "Audio file is required"})
 
-    transcript = transcribe_audio(file.filename or "audio.webm", file_bytes)
-
-    return {
-        "transcript": transcript
-    }
+    try:
+        transcript = transcribe_audio(file.filename or "audio.webm", file_bytes)
+        return {"transcript": transcript}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"STT failed: {str(e)}"}
+        )
 
 
 @app.post("/api/sts")
@@ -130,10 +140,15 @@ async def speech_to_speech(file: UploadFile = File(...)):
     if not file_bytes:
         return JSONResponse(status_code=400, content={"error": "Audio file is required"})
 
-    audio_bytes = convert_speech_to_speech(file.filename or "audio.webm", file_bytes)
-
-    return StreamingResponse(
-        BytesIO(audio_bytes),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "inline; filename=converted.mp3"}
-    )
+    try:
+        audio_bytes = convert_speech_to_speech(file.filename or "audio.webm", file_bytes)
+        return StreamingResponse(
+            BytesIO(audio_bytes),
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=converted.mp3"}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"STS failed: {str(e)}"}
+        )
