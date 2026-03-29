@@ -1,18 +1,24 @@
 const chatBox = document.getElementById("chat-box");
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
+const newChatBtn = document.getElementById("new-chat-btn");
+const sessionList = document.getElementById("session-list");
 
-const recordSttBtn = document.getElementById("record-stt-btn");
-const recordStsBtn = document.getElementById("record-sts-btn");
+const voiceChatBtn = document.getElementById("voice-chat-btn");
 const recordingStatus = document.getElementById("recording-status");
 
 const moodValue = document.getElementById("mood-value");
 const riskValue = document.getElementById("risk-value");
 const resourceList = document.getElementById("resource-list");
 
+let activeSessionId = null;
 let mediaRecorder = null;
 let audioChunks = [];
-let currentMode = null;
+let isRecording = false;
+
+function clearChatBox() {
+  chatBox.innerHTML = "";
+}
 
 function addMessage(text, sender) {
   const messageDiv = document.createElement("div");
@@ -27,192 +33,124 @@ function addMessage(text, sender) {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function getFallbackResources(riskLevel, emotion) {
-  if (riskLevel === "high") {
-    return [
-      {
-        title: "988 Suicide & Crisis Lifeline",
-        type: "helpline",
-        description: "Call or text 988 if you need immediate emotional support.",
-        url: "https://988lifeline.org/"
-      },
-      {
-        title: "SAMHSA National Helpline",
-        type: "helpline",
-        description: "Call 1-800-662-HELP (4357) for treatment referral and support.",
-        url: "https://www.samhsa.gov/find-help/helplines/national-helpline"
-      },
-      {
-        title: "Reach out to someone you trust",
-        type: "support",
-        description: "Contact a trusted friend, family member, counselor, or emergency services if you are in danger.",
-        url: ""
-      }
-    ];
-  }
+function renderMessages(messages) {
+  clearChatBox();
 
-  if (emotion === "sadness") {
-    return [
-      {
-        title: "Try journaling for 5 minutes",
-        type: "tip",
-        description: "Writing down your thoughts can help you process what you’re feeling.",
-        url: ""
-      },
-      {
-        title: "Take a short walk outside",
-        type: "tip",
-        description: "A small physical reset can sometimes help lighten emotional heaviness.",
-        url: ""
-      },
-      {
-        title: "Talk to someone you trust",
-        type: "support",
-        description: "A short conversation with someone safe can help you feel less alone.",
-        url: ""
-      }
-    ];
-  }
-
-  if (emotion === "anxiety") {
-    return [
-      {
-        title: "Box breathing",
-        type: "exercise",
-        description: "Breathe in for 4, hold for 4, out for 4, hold for 4. Repeat slowly.",
-        url: ""
-      },
-      {
-        title: "Step away from screens briefly",
-        type: "tip",
-        description: "Take a short break to reduce overstimulation and reset.",
-        url: ""
-      },
-      {
-        title: "Use the 5-4-3-2-1 grounding technique",
-        type: "exercise",
-        description: "Notice 5 things you see, 4 you feel, 3 you hear, 2 you smell, 1 you taste.",
-        url: ""
-      }
-    ];
-  }
-
-  if (emotion === "anger") {
-    return [
-      {
-        title: "Pause before reacting",
-        type: "tip",
-        description: "A brief pause can help you respond more calmly.",
-        url: ""
-      },
-      {
-        title: "Take 5 slow breaths",
-        type: "exercise",
-        description: "Slowing your breathing may help reduce intensity in the moment.",
-        url: ""
-      },
-      {
-        title: "Step away for a short break",
-        type: "tip",
-        description: "Give yourself some space before continuing the situation.",
-        url: ""
-      }
-    ];
-  }
-
-  if (emotion === "stress") {
-    return [
-      {
-        title: "Break one task into smaller steps",
-        type: "tip",
-        description: "Smaller tasks feel more manageable than one large task.",
-        url: ""
-      },
-      {
-        title: "Drink water and stretch",
-        type: "tip",
-        description: "A quick body reset can help when stress builds up.",
-        url: ""
-      },
-      {
-        title: "Write down the top 3 things on your mind",
-        type: "exercise",
-        description: "This can help reduce mental overload and clarify priorities.",
-        url: ""
-      }
-    ];
-  }
-
-  return [
-    {
-      title: "Take 3 slow deep breaths",
-      type: "tip",
-      description: "Pause for a moment and focus only on your breathing.",
-      url: ""
-    },
-    {
-      title: "Drink water",
-      type: "tip",
-      description: "Small physical resets can support emotional grounding.",
-      url: ""
-    },
-    {
-      title: "Write down one thing bothering you",
-      type: "exercise",
-      description: "Naming the thought can make it feel more manageable.",
-      url: ""
-    }
-  ];
-}
-
-function renderResources(resources = []) {
-  resourceList.innerHTML = "";
-
-  if (!resources.length) {
-    const emptyState = document.createElement("div");
-    emptyState.classList.add("empty-resource");
-    emptyState.textContent = "No resources available right now.";
-    resourceList.appendChild(emptyState);
+  if (!messages || messages.length === 0) {
+    addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
     return;
   }
 
-  resources.forEach((resource) => {
-    const item = document.createElement("div");
-    item.classList.add("resource-item");
-
-    const top = document.createElement("div");
-    top.classList.add("resource-top");
-
-    const badge = document.createElement("span");
-    badge.classList.add("resource-type-badge");
-    badge.textContent = resource.type || "resource";
-
-    top.appendChild(badge);
-
-    const title = document.createElement("h3");
-    title.classList.add("resource-title");
-    title.textContent = resource.title || "Helpful Resource";
-
-    const description = document.createElement("p");
-    description.classList.add("resource-description");
-    description.textContent = resource.description || "Helpful support content.";
-
-    item.appendChild(top);
-    item.appendChild(title);
-    item.appendChild(description);
-
-    if (resource.url) {
-      const link = document.createElement("a");
-      link.classList.add("resource-link");
-      link.href = resource.url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = "Open resource ↗";
-      item.appendChild(link);
-    }
-
-    resourceList.appendChild(item);
+  messages.forEach((msg) => {
+    addMessage(msg.text, msg.sender);
   });
+}
+
+function updateResources(riskLevel, emotion) {
+  resourceList.innerHTML = "";
+
+  let resources = [];
+
+  if (riskLevel === "high") {
+    resources = [
+      "Reach out to a trusted friend or family member",
+      "Contact a mental health professional immediately",
+      "If in danger, call emergency services or a crisis hotline"
+    ];
+  } else if (emotion === "sadness") {
+    resources = [
+      "Try journaling for 5 minutes",
+      "Take a short walk outside",
+      "Talk to someone you trust"
+    ];
+  } else if (emotion === "anxiety") {
+    resources = [
+      "Practice box breathing for 2 minutes",
+      "Step away from screens briefly",
+      "Ground yourself using the 5-4-3-2-1 technique"
+    ];
+  } else if (emotion === "anger") {
+    resources = [
+      "Pause before reacting",
+      "Take 5 slow breaths",
+      "Step away for a short break"
+    ];
+  } else if (emotion === "stress") {
+    resources = [
+      "Break one task into smaller steps",
+      "Drink water and stretch",
+      "Write down the top 3 things on your mind"
+    ];
+  } else {
+    resources = [
+      "Take 3 slow deep breaths",
+      "Drink water",
+      "Write down one thing bothering you"
+    ];
+  }
+
+  resources.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    resourceList.appendChild(li);
+  });
+}
+
+async function loadSessions() {
+  try {
+    const response = await fetch("http://127.0.0.1:8001/api/chat-sessions");
+    const data = await response.json();
+
+    sessionList.innerHTML = "";
+
+    (data.sessions || []).forEach((session) => {
+      const item = document.createElement("div");
+      item.classList.add("session-item");
+
+      if (session.id === activeSessionId) {
+        item.classList.add("active");
+      }
+
+      item.innerHTML = `
+        <div class="session-title">${session.title || "New Chat"}</div>
+        <div class="session-meta">${session.message_count || 0} messages</div>
+      `;
+
+      item.addEventListener("click", async () => {
+        activeSessionId = session.id;
+        await loadSessionMessages(session.id);
+        await loadSessions();
+      });
+
+      sessionList.appendChild(item);
+    });
+  } catch (error) {
+    console.error("Failed to load sessions:", error);
+  }
+}
+
+async function loadSessionMessages(sessionId) {
+  try {
+    const response = await fetch(`http://127.0.0.1:8001/api/chat-sessions/${sessionId}`);
+    const data = await response.json();
+
+    renderMessages(data.messages || []);
+
+    const lastBotMessage = [...(data.messages || [])].reverse().find(
+      (msg) => msg.sender === "bot"
+    );
+
+    if (lastBotMessage) {
+      moodValue.textContent = lastBotMessage.emotion || "unknown";
+      riskValue.textContent = lastBotMessage.risk_level || "low";
+      updateResources(
+        lastBotMessage.risk_level || "low",
+        lastBotMessage.emotion || "unknown"
+      );
+    }
+  } catch (error) {
+    console.error("Failed to load session messages:", error);
+  }
 }
 
 async function sendChatMessage(message) {
@@ -221,7 +159,10 @@ async function sendChatMessage(message) {
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({
+      message,
+      session_id: activeSessionId
+    })
   });
 
   if (!response.ok) {
@@ -292,22 +233,22 @@ async function sendMessage() {
   const message = messageInput.value.trim();
   if (!message) return;
 
-  addMessage(message, "user");
-  messageInput.value = "";
   recordingStatus.textContent = "Sending message...";
 
   try {
     const data = await sendChatMessage(message);
 
-    const reply = data.reply || "I’m here with you.";
-    const emotion = data.emotion || "unknown";
-    const riskLevel = data.risk_level || "low";
-    const resources = data.resources || getFallbackResources(riskLevel, emotion);
+    if (!activeSessionId) {
+      activeSessionId = data.session_id;
+    }
 
-    addMessage(reply, "bot");
-    moodValue.textContent = emotion;
-    riskValue.textContent = riskLevel;
-    renderResources(resources);
+    messageInput.value = "";
+    await loadSessionMessages(activeSessionId);
+    await loadSessions();
+
+    moodValue.textContent = data.emotion || "unknown";
+    riskValue.textContent = data.risk_level || "low";
+    updateResources(data.risk_level || "low", data.emotion || "unknown");
 
     recordingStatus.textContent = "Idle";
   } catch (error) {
@@ -326,24 +267,23 @@ async function handleVoiceChat(audioBlob) {
       throw new Error("No transcript received from STT");
     }
 
-    addMessage(transcript, "user");
     messageInput.value = transcript;
-
-    recordingStatus.textContent = "Generating support reply...";
+    recordingStatus.textContent = "Sending voice message...";
     const data = await sendChatMessage(transcript);
 
-    const reply = data.reply || "I’m here with you.";
-    const emotion = data.emotion || "unknown";
-    const riskLevel = data.risk_level || "low";
-    const resources = data.resources || getFallbackResources(riskLevel, emotion);
+    if (!activeSessionId) {
+      activeSessionId = data.session_id;
+    }
 
-    addMessage(reply, "bot");
-    moodValue.textContent = emotion;
-    riskValue.textContent = riskLevel;
-    renderResources(resources);
+    await loadSessionMessages(activeSessionId);
+    await loadSessions();
+
+    moodValue.textContent = data.emotion || "unknown";
+    riskValue.textContent = data.risk_level || "low";
+    updateResources(data.risk_level || "low", data.emotion || "unknown");
 
     recordingStatus.textContent = "Playing audio reply...";
-    await playTtsAudio(reply);
+    await playTtsAudio(data.reply || "I’m here with you.");
 
     messageInput.value = "";
     recordingStatus.textContent = "Idle";
@@ -354,12 +294,14 @@ async function handleVoiceChat(audioBlob) {
   }
 }
 
-async function startRecording(mode) {
+async function startVoiceRecording() {
+  if (isRecording) return;
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-    currentMode = mode;
     audioChunks = [];
+    isRecording = true;
+    voiceChatBtn.classList.add("recording");
 
     let mimeType = "audio/webm";
     if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
@@ -379,24 +321,14 @@ async function startRecording(mode) {
     mediaRecorder.onstop = async () => {
       const audioBlob = new Blob(audioChunks, { type: mimeType });
       stream.getTracks().forEach((track) => track.stop());
+      isRecording = false;
+      voiceChatBtn.classList.remove("recording");
 
-      try {
-        if (currentMode === "stt") {
-          recordingStatus.textContent = "Sending audio to STT...";
-          const transcript = await sendAudioForStt(audioBlob);
-          messageInput.value = transcript;
-          recordingStatus.textContent = transcript ? "Transcript ready" : "No speech detected";
-        } else if (currentMode === "sts") {
-          await handleVoiceChat(audioBlob);
-        }
-      } catch (error) {
-        console.error(`${currentMode.toUpperCase()} error:`, error);
-        recordingStatus.textContent = `${currentMode.toUpperCase()} failed`;
-      }
+      await handleVoiceChat(audioBlob);
     };
 
     mediaRecorder.start();
-    recordingStatus.textContent = `Recording for ${mode.toUpperCase()}...`;
+    recordingStatus.textContent = "Recording voice chat...";
 
     setTimeout(() => {
       if (mediaRecorder && mediaRecorder.state === "recording") {
@@ -405,9 +337,22 @@ async function startRecording(mode) {
     }, 5000);
   } catch (error) {
     console.error("Recording error:", error);
+    isRecording = false;
+    voiceChatBtn.classList.remove("recording");
     recordingStatus.textContent = "Microphone access failed";
   }
 }
+
+newChatBtn.addEventListener("click", async () => {
+  activeSessionId = null;
+  clearChatBox();
+  addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
+  moodValue.textContent = "Unknown";
+  riskValue.textContent = "Low";
+  updateResources("low", "unknown");
+  messageInput.value = "";
+  await loadSessions();
+});
 
 sendBtn.addEventListener("click", sendMessage);
 
@@ -417,12 +362,9 @@ messageInput.addEventListener("keypress", (event) => {
   }
 });
 
-recordSttBtn.addEventListener("click", async () => {
-  await startRecording("stt");
+voiceChatBtn.addEventListener("click", async () => {
+  await startVoiceRecording();
 });
 
-recordStsBtn.addEventListener("click", async () => {
-  await startRecording("sts");
-});
-
-renderResources(getFallbackResources("low", "unknown"));
+loadSessions();
+updateResources("low", "unknown");
