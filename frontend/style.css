@@ -473,4 +473,56 @@ body {
   .bubble {
     max-width: 88%;
   }
+  .session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.session-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-archive-btn,
+.session-delete-btn {
+  border: none;
+  background: #f4f7fb;
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: all 0.18s ease;
+}
+
+.session-archive-btn:hover,
+.session-delete-btn:hover {
+  background: #eaf1fb;
+  transform: translateY(-1px);
+}
+
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resource-empty {
+  font-size: 14px;
+  color: #6b7a90;
+  line-height: 1.6;
+  background: #f8fbff;
+  border: 1px dashed #d5e1ef;
+  border-radius: 16px;
+  padding: 14px;
+}
 }

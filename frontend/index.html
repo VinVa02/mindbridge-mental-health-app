@@ -27,7 +27,6 @@
             <h1>MindBridge</h1>
             <p>Your mental wellness support space</p>
           </div>
-          <div class="status-badge" id="recording-status">Idle</div>
         </header>
 
         <div id="chat-box" class="chat-box">
@@ -54,8 +53,8 @@
           <button id="send-btn" class="send-btn">Send</button>
         </div>
 
-        <p class="helper-text">
-          Tap the mic to speak for 5 seconds and get a spoken reply.
+        <p class="helper-text" id="recording-status">
+          Voice ready
         </p>
       </section>
 
@@ -71,11 +70,11 @@
         </div>
 
         <div class="panel-card resources-card">
-          <p class="panel-label">Helpful Resources</p>
-          <div id="resource-groups" class="resource-groups">
-            <div class="empty-resource-state">
-              Resources matched to the current conversation will appear here.
-            </div>
+          <div class="resources-header">
+            <p class="panel-label">Helpful Resources</p>
+          </div>
+          <div id="resource-list" class="resource-list">
+            <div class="resource-empty">Resources will appear based on the conversation.</div>
           </div>
         </div>
       </aside>
