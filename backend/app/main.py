@@ -370,13 +370,18 @@ def text_to_speech(text: str = Form(...)):
 async def speech_to_text(file: UploadFile = File(...)):
     file_bytes = await file.read()
 
+    print("DEBUG STT filename:", file.filename)
+    print("DEBUG STT bytes length:", len(file_bytes) if file_bytes else 0)
+
     if not file_bytes:
         return JSONResponse(status_code=400, content={"error": "Audio file is required"})
 
     try:
         transcript = transcribe_audio(file.filename or "audio.webm", file_bytes)
+        print("DEBUG STT transcript:", transcript)
         return {"transcript": transcript}
     except Exception as e:
+        print("DEBUG /api/stt exception:", repr(e))
         return JSONResponse(
             status_code=500,
             content={"error": f"STT failed: {str(e)}"}
