@@ -8,7 +8,20 @@
 </head>
 <body>
   <div class="app-container">
-    
+
+    <!-- Left: History Panel -->
+    <aside class="history-panel">
+      <div class="history-header">
+        <h2>Chat History</h2>
+        <button id="new-chat-btn" class="new-chat-btn">+ New Chat</button>
+      </div>
+
+      <div id="history-list" class="history-list">
+        <div class="history-empty">Loading chats...</div>
+      </div>
+    </aside>
+
+    <!-- Center: Chat Section -->
     <section class="chat-section">
       <header class="chat-header">
         <h1>MindBridge</h1>
@@ -24,7 +37,7 @@
       </div>
 
       <div class="input-area">
-        <button id="mic-btn" class="icon-btn">🎤</button>
+        <button id="mic-btn" class="icon-btn" title="Speak your message">🎤</button>
         <input
           type="text"
           id="message-input"
@@ -38,6 +51,7 @@
       </div>
     </section>
 
+    <!-- Right: Mood / Risk / Resources -->
     <aside class="side-panel">
       <div class="panel-card">
         <h2>Current Mood</h2>
