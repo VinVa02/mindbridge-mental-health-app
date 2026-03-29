@@ -1,3 +1,5 @@
+const API_BASE = "http://127.0.0.1:8001";
+
 const chatBox = document.getElementById("chat-box");
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
@@ -15,6 +17,7 @@ let activeSessionId = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
+let isSending = false;
 
 function autoResizeTextarea() {
   messageInput.style.height = "auto";
@@ -58,6 +61,25 @@ function addMessage(text, sender) {
   scrollChatToBottom();
 }
 
+function addTypingMessage() {
+  const messageDiv = document.createElement("div");
+  messageDiv.classList.add("message", "bot");
+  messageDiv.id = "typing-indicator";
+
+  const bubbleDiv = document.createElement("div");
+  bubbleDiv.classList.add("bubble");
+  bubbleDiv.textContent = "MindBridge is responding...";
+
+  messageDiv.appendChild(bubbleDiv);
+  chatBox.appendChild(messageDiv);
+  scrollChatToBottom();
+}
+
+function removeTypingMessage() {
+  const typing = document.getElementById("typing-indicator");
+  if (typing) typing.remove();
+}
+
 function renderMessages(messages) {
   clearChatBox();
 
@@ -74,10 +96,45 @@ function renderMessages(messages) {
   scrollChatToBottom();
 }
 
-function renderResourceGroups(groups) {
+function normalizeResources(resources) {
+  if (!Array.isArray(resources)) return [];
+
+  return resources.map((item) => ({
+    id: item.id || "",
+    title: item.title || "Untitled Resource",
+    type: item.type || "resource",
+    url: item.url || "",
+    description: item.description || "",
+    file_name: item.file_name || ""
+  }));
+}
+
+function groupResourcesByType(resources) {
+  const grouped = {};
+
+  resources.forEach((item) => {
+    const key = (item.type || "resource").toLowerCase();
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(item);
+  });
+
+  return Object.entries(grouped).map(([group, items]) => ({
+    group,
+    items
+  }));
+}
+
+function formatGroupTitle(group) {
+  if (!group) return "Resources";
+  return group.charAt(0).toUpperCase() + group.slice(1);
+}
+
+function renderResourceGroups(resources) {
   resourceGroups.innerHTML = "";
 
-  if (!groups || groups.length === 0) {
+  const normalized = normalizeResources(resources);
+
+  if (normalized.length === 0) {
     resourceGroups.innerHTML = `
       <div class="empty-resource-state">
         Resources matched to the current conversation will appear here.
@@ -86,13 +143,15 @@ function renderResourceGroups(groups) {
     return;
   }
 
+  const groups = groupResourcesByType(normalized);
+
   groups.forEach((group) => {
     const groupWrapper = document.createElement("div");
     groupWrapper.classList.add("resource-group");
 
     const title = document.createElement("div");
     title.classList.add("resource-group-title");
-    title.textContent = group.group;
+    title.textContent = formatGroupTitle(group.group);
 
     groupWrapper.appendChild(title);
 
@@ -100,11 +159,18 @@ function renderResourceGroups(groups) {
       const card = document.createElement("div");
       card.classList.add("resource-card");
 
+      const safeUrl = item.url && item.url.trim() ? item.url : "#";
+      const metaLine = item.file_name ? `<div class="resource-description">${item.file_name}</div>` : "";
+      const descriptionLine = item.description
+        ? `<div class="resource-description">${item.description}</div>`
+        : "";
+
       card.innerHTML = `
-        <a class="resource-link" href="${item.url}" target="_blank" rel="noopener noreferrer">
+        <a class="resource-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer">
           ${item.title}
         </a>
-        <div class="resource-description">${item.description || ""}</div>
+        ${metaLine}
+        ${descriptionLine}
       `;
 
       groupWrapper.appendChild(card);
@@ -114,14 +180,54 @@ function renderResourceGroups(groups) {
   });
 }
 
+function resetSidePanel() {
+  moodValue.textContent = "Unknown";
+  riskValue.textContent = "Low";
+  renderResourceGroups([]);
+}
+
+function updateSidePanelFromResponse(data) {
+  moodValue.textContent = data.emotion || "Unknown";
+  riskValue.textContent = data.risk_level || "Low";
+  renderResourceGroups(data.resources || []);
+}
+
+function updateUiBusyState(busy, statusText = "Idle") {
+  isSending = busy;
+  sendBtn.disabled = busy;
+  voiceChatBtn.disabled = busy;
+  messageInput.disabled = busy;
+  recordingStatus.textContent = statusText;
+
+  if (busy) {
+    sendBtn.textContent = "Sending...";
+  } else {
+    sendBtn.textContent = "Send";
+  }
+}
+
 async function loadSessions() {
   try {
-    const response = await fetch("http://127.0.0.1:8001/api/chat-sessions");
+    const response = await fetch(`${API_BASE}/api/chat-sessions`);
+    if (!response.ok) {
+      throw new Error(`Failed to load sessions: ${response.status}`);
+    }
+
     const data = await response.json();
+    const sessions = data.sessions || [];
 
     sessionList.innerHTML = "";
 
-    (data.sessions || []).forEach((session) => {
+    if (sessions.length === 0) {
+      sessionList.innerHTML = `
+        <div class="empty-resource-state">
+          No chats yet. Start a new conversation.
+        </div>
+      `;
+      return;
+    }
+
+    sessions.forEach((session) => {
       const item = document.createElement("div");
       item.classList.add("session-item");
 
@@ -144,36 +250,46 @@ async function loadSessions() {
     });
   } catch (error) {
     console.error("Failed to load sessions:", error);
+    sessionList.innerHTML = `
+      <div class="empty-resource-state">
+        Unable to load chat history.
+      </div>
+    `;
   }
 }
 
 async function loadSessionMessages(sessionId) {
   try {
-    const response = await fetch(`http://127.0.0.1:8001/api/chat-sessions/${sessionId}`);
+    const response = await fetch(`${API_BASE}/api/chat-sessions/${sessionId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to load session: ${response.status}`);
+    }
+
     const data = await response.json();
+    const messages = data.messages || [];
 
-    renderMessages(data.messages || []);
+    renderMessages(messages);
 
-    const lastBotMessage = [...(data.messages || [])].reverse().find(
-      (msg) => msg.sender === "bot"
-    );
+    const lastBotMessage = [...messages].reverse().find((msg) => msg.sender === "bot");
 
     if (lastBotMessage) {
-      moodValue.textContent = lastBotMessage.emotion || "unknown";
-      riskValue.textContent = lastBotMessage.risk_level || "low";
+      moodValue.textContent = lastBotMessage.emotion || "Unknown";
+      riskValue.textContent = lastBotMessage.risk_level || "Low";
       renderResourceGroups(lastBotMessage.resources || []);
     } else {
-      moodValue.textContent = "Unknown";
-      riskValue.textContent = "Low";
-      renderResourceGroups([]);
+      resetSidePanel();
     }
   } catch (error) {
     console.error("Failed to load session messages:", error);
+    clearChatBox();
+    addWelcomeState();
+    addMessage("Sorry, I couldn’t load this conversation.", "bot");
+    resetSidePanel();
   }
 }
 
 async function sendChatMessage(message) {
-  const response = await fetch("http://127.0.0.1:8001/api/chat", {
+  const response = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -196,7 +312,7 @@ async function sendAudioForStt(audioBlob) {
   const formData = new FormData();
   formData.append("file", audioBlob, "recording.webm");
 
-  const response = await fetch("http://127.0.0.1:8001/api/stt", {
+  const response = await fetch(`${API_BASE}/api/stt`, {
     method: "POST",
     body: formData
   });
@@ -214,7 +330,7 @@ async function playTtsAudio(text) {
   const formData = new FormData();
   formData.append("text", text);
 
-  const response = await fetch("http://127.0.0.1:8001/api/tts", {
+  const response = await fetch(`${API_BASE}/api/tts`, {
     method: "POST",
     body: formData
   });
@@ -250,82 +366,90 @@ async function playTtsAudio(text) {
 
 async function sendMessage() {
   const message = messageInput.value.trim();
-  if (!message) return;
+  if (!message || isSending) return;
 
-  recordingStatus.textContent = "Sending message...";
+  addMessage(message, "user");
+  messageInput.value = "";
+  autoResizeTextarea();
+
+  updateUiBusyState(true, "Sending message...");
+  addTypingMessage();
 
   try {
     const data = await sendChatMessage(message);
+
+    removeTypingMessage();
 
     if (!activeSessionId) {
       activeSessionId = data.session_id;
     }
 
-    messageInput.value = "";
-    autoResizeTextarea();
+    addMessage(data.reply || "I’m here with you.", "bot");
+    updateSidePanelFromResponse(data);
 
-    await loadSessionMessages(activeSessionId);
     await loadSessions();
-
-    moodValue.textContent = data.emotion || "unknown";
-    riskValue.textContent = data.risk_level || "low";
-    renderResourceGroups(data.resources || []);
-
-    recordingStatus.textContent = "Idle";
   } catch (error) {
     console.error("Chat error:", error);
+    removeTypingMessage();
     addMessage("Sorry, I couldn’t connect to the server.", "bot");
     recordingStatus.textContent = "Chat failed";
+  } finally {
+    updateUiBusyState(false, "Idle");
   }
 }
 
 async function handleVoiceChat(audioBlob) {
+  if (isSending) return;
+
   try {
-    recordingStatus.textContent = "Transcribing speech...";
+    updateUiBusyState(true, "Transcribing speech...");
     const transcript = await sendAudioForStt(audioBlob);
 
     if (!transcript.trim()) {
       throw new Error("No transcript received from STT");
     }
 
-    messageInput.value = transcript;
-    autoResizeTextarea();
+    addMessage(transcript, "user");
 
-    recordingStatus.textContent = "Sending voice message...";
+    updateUiBusyState(true, "Sending voice message...");
+    addTypingMessage();
+
     const data = await sendChatMessage(transcript);
+
+    removeTypingMessage();
 
     if (!activeSessionId) {
       activeSessionId = data.session_id;
     }
 
-    await loadSessionMessages(activeSessionId);
+    addMessage(data.reply || "I’m here with you.", "bot");
+    updateSidePanelFromResponse(data);
     await loadSessions();
 
-    moodValue.textContent = data.emotion || "unknown";
-    riskValue.textContent = data.risk_level || "low";
-    renderResourceGroups(data.resources || []);
-
-    recordingStatus.textContent = "Playing audio reply...";
+    updateUiBusyState(true, "Playing audio reply...");
     await playTtsAudio(data.reply || "I’m here with you.");
 
     messageInput.value = "";
     autoResizeTextarea();
-    recordingStatus.textContent = "Idle";
   } catch (error) {
     console.error("Voice chat error:", error);
+    removeTypingMessage();
     addMessage("Sorry, voice chat failed.", "bot");
     recordingStatus.textContent = "Voice chat failed";
+  } finally {
+    updateUiBusyState(false, "Idle");
   }
 }
 
 async function startVoiceRecording() {
-  if (isRecording) return;
+  if (isRecording || isSending) return;
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioChunks = [];
     isRecording = true;
     voiceChatBtn.classList.add("recording");
+    recordingStatus.textContent = "Recording voice chat...";
 
     let mimeType = "audio/webm";
     if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
@@ -352,7 +476,6 @@ async function startVoiceRecording() {
     };
 
     mediaRecorder.start();
-    recordingStatus.textContent = "Recording voice chat...";
 
     setTimeout(() => {
       if (mediaRecorder && mediaRecorder.state === "recording") {
@@ -367,16 +490,23 @@ async function startVoiceRecording() {
   }
 }
 
+async function initializeChatUi() {
+  clearChatBox();
+  addWelcomeState();
+  addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
+  resetSidePanel();
+  await loadSessions();
+}
+
 newChatBtn.addEventListener("click", async () => {
   activeSessionId = null;
   clearChatBox();
   addWelcomeState();
   addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
-  moodValue.textContent = "Unknown";
-  riskValue.textContent = "Low";
-  renderResourceGroups([]);
+  resetSidePanel();
   messageInput.value = "";
   autoResizeTextarea();
+  recordingStatus.textContent = "Idle";
   await loadSessions();
 });
 
@@ -395,6 +525,5 @@ voiceChatBtn.addEventListener("click", async () => {
   await startVoiceRecording();
 });
 
-loadSessions();
-renderResourceGroups([]);
+initializeChatUi();
 autoResizeTextarea();
