@@ -140,7 +140,7 @@ body {
 }
 
 .side-panel {
-  width: 320px;
+  width: 360px;
   background: #eef3fa;
   border-left: 1px solid #d7e0ee;
   padding: 20px;
@@ -149,10 +149,10 @@ body {
 
 .panel-card {
   background: white;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 16px;
   margin-bottom: 16px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
 }
 
 .panel-card h2 {
@@ -161,14 +161,99 @@ body {
   color: #2b4c7e;
 }
 
-.panel-card p,
-.panel-card li {
+.panel-card p {
   color: #444;
   line-height: 1.6;
 }
 
-.panel-card ul {
-  padding-left: 18px;
+.resources-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resources-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resources-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.resource-item {
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f9fbff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.resource-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(43, 76, 126, 0.08);
+}
+
+.resource-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.resource-type-badge {
+  display: inline-block;
+  background: #dfe9f7;
+  color: #23406a;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+
+.resource-title {
+  font-size: 15px;
+  color: #1f3558;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.resource-description {
+  font-size: 13px;
+  color: #556070;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.resource-link {
+  display: inline-block;
+  text-decoration: none;
+  color: #2b4c7e;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.resource-link:hover {
+  text-decoration: underline;
+}
+
+.empty-resource {
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+  padding: 20px 10px;
 }
 
 @media (max-width: 900px) {
@@ -185,5 +270,9 @@ body {
 
   .chat-section {
     min-height: 70vh;
+  }
+
+  .resource-list {
+    max-height: none;
   }
 }
