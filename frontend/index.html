@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MindBridge</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <div class="app-container">
     <section class="chat-section">
@@ -23,17 +25,13 @@
       </div>
 
       <div class="input-area">
-        <input
-          type="text"
-          id="message-input"
-          placeholder="Type your thoughts here..."
-        />
+        <input type="text" id="message-input" placeholder="Type your thoughts here..." />
         <button id="send-btn" class="send-btn">Send</button>
       </div>
 
       <div class="voice-controls">
         <button id="record-stt-btn" class="voice-btn">🎤 Record for STT</button>
-        <button id="record-sts-btn" class="voice-btn">🗣️ Speech-to-Speech</button>
+        <button id="record-sts-btn" class="voice-btn">🗣️ Voice Chat</button>
       </div>
 
       <p id="recording-status" class="recording-status">Idle</p>
@@ -63,4 +61,5 @@
 
   <script src="script.js"></script>
 </body>
+
 </html>

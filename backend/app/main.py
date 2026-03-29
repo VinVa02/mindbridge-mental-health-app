@@ -15,6 +15,8 @@ from app.services.elevenlabs_service import (
     convert_speech_to_speech,
 )
 
+print("DEBUG: main.py loaded")
+
 app = FastAPI(title="MindBridge API")
 
 app.add_middleware(
@@ -103,13 +105,17 @@ def text_to_speech(text: str = Form(...)):
         return JSONResponse(status_code=400, content={"error": "Text is required"})
 
     try:
+        print("DEBUG /api/tts received text:", text)
         audio_bytes = generate_tts_audio(text)
+        print("DEBUG /api/tts returning bytes:", len(audio_bytes))
+
         return StreamingResponse(
             BytesIO(audio_bytes),
             media_type="audio/mpeg",
             headers={"Content-Disposition": "inline; filename=reply.mp3"}
         )
     except Exception as e:
+        print("DEBUG /api/tts exception:", repr(e))
         return JSONResponse(
             status_code=500,
             content={"error": f"TTS failed: {str(e)}"}
