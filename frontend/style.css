@@ -347,22 +347,76 @@ body {
   color: var(--text);
 }
 
-.resources-card ul {
-  padding-left: 18px;
-}
-
-.resources-card li {
-  margin-bottom: 10px;
-  color: #41576f;
-  line-height: 1.55;
-}
-
 .mood-card {
   background: linear-gradient(180deg, #ffffff, #f7fbff);
 }
 
 .risk-card {
   background: linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+/* Resource groups */
+.resource-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.resource-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.resource-group-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7a90;
+}
+
+.resource-card {
+  background: #f8fbff;
+  border: 1px solid #dfe8f4;
+  border-radius: 16px;
+  padding: 12px 14px;
+  transition: all 0.18s ease;
+}
+
+.resource-card:hover {
+  border-color: #bfd0ea;
+  box-shadow: 0 8px 20px rgba(28, 52, 84, 0.06);
+}
+
+.resource-link {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #284b73;
+  text-decoration: none;
+  margin-bottom: 6px;
+}
+
+.resource-link:hover {
+  color: #4361d8;
+  text-decoration: underline;
+}
+
+.resource-description {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #41576f;
+}
+
+.empty-resource-state {
+  font-size: 14px;
+  color: #6b7a90;
+  line-height: 1.6;
+  background: #f8fbff;
+  border: 1px dashed #d5e1ef;
+  border-radius: 16px;
+  padding: 14px;
 }
 
 @keyframes pulse {
