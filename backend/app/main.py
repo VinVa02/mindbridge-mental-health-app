@@ -2,11 +2,16 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 from bson import ObjectId
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.services.rag_service import retrieve_relevant_chunks
+from app.services.grounded_chat_service import generate_grounded_reply
+
 from app.database import chat_session_collection, resource_collection
+from app.services.resource_service import get_matching_resources
+from app.services.mood_service import assess_mood_with_gemini
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
 from app.services.elevenlabs_service import (
@@ -14,10 +19,6 @@ from app.services.elevenlabs_service import (
     transcribe_audio,
     convert_speech_to_speech,
 )
-from app.services.grounded_chat_service import generate_grounded_reply
-from app.services.mood_service import assess_mood_with_gemini
-from app.services.rag_service import retrieve_relevant_chunks
-from app.services.resource_service import get_matching_resources
 
 print("DEBUG: main.py loaded")
 
@@ -33,59 +34,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def serialize_resource(item):
-    return {
-        "id": str(item["_id"]),
-        "title": item.get("title", ""),
-        "type": item.get("type", item.get("source_type", "resource")),
-        "url": item.get("url", item.get("source_url", "")),
-        "file_name": item.get("file_name", ""),
-        "description": item.get("description", ""),
-        "moods": item.get("moods", item.get("topic_tags", [])),
-        "risk_levels": item.get("risk_levels", item.get("risk_tags", [])),
-    }
-
-
-def get_resources_by_titles(titles: list[str]):
-    if not titles:
-        return []
-
-    seen = set()
-    ordered_titles = []
-
-    for title in titles:
-        if title and title not in seen:
-            seen.add(title)
-            ordered_titles.append(title)
-
-    results = []
-    cursor = resource_collection.find({"title": {"$in": ordered_titles}})
-
-    docs_by_title = {}
-    for doc in cursor:
-        docs_by_title[doc.get("title")] = serialize_resource(doc)
-
-    for title in ordered_titles:
-        if title in docs_by_title:
-            results.append(docs_by_title[title])
-
-    return results
-
-
-def summarize_retrieved_chunks(chunks: list[dict]):
-    results = []
-
-    for chunk in chunks:
-        results.append({
-            "title": chunk.get("title", ""),
-            "chunk_index": chunk.get("chunk_index"),
-            "score": chunk.get("score"),
-            "text_preview": (chunk.get("text", "")[:250] + "...") if chunk.get("text") else ""
-        })
-
-    return results
 
 
 @app.get("/")
@@ -106,7 +54,6 @@ def chat(payload: ChatRequest):
 
     fallback = analyze_message(message)
 
-    # Step 1: mood + risk assessment
     try:
         mood_result = assess_mood_with_gemini(message)
 
@@ -116,7 +63,6 @@ def chat(payload: ChatRequest):
         final_reasoning = mood_result.reasoning
         final_reply = mood_result.reply
 
-        # safety override from keyword analyzer
         if fallback["risk_level"] == "high":
             final_emotion = fallback["emotion"]
             final_intensity = 5
@@ -133,43 +79,7 @@ def chat(payload: ChatRequest):
         final_reasoning = "Fallback analyzer used."
         final_reply = fallback["reply"]
 
-    # Step 2: retrieve relevant chunks from RAG
-    retrieved_chunks = []
-    used_titles = []
-    resources = []
-
-    try:
-        retrieved_chunks = retrieve_relevant_chunks(message, top_k=4)
-        print(f"DEBUG /api/chat retrieved chunks: {len(retrieved_chunks)}")
-
-        if retrieved_chunks:
-            grounded = generate_grounded_reply(
-                user_message=message,
-                mood=final_emotion,
-                risk_level=final_risk,
-                retrieved_chunks=retrieved_chunks
-            )
-
-            if getattr(grounded, "reply", None):
-                final_reply = grounded.reply
-
-            used_titles = getattr(grounded, "used_titles", []) or [
-                chunk.get("title") for chunk in retrieved_chunks if chunk.get("title")
-            ]
-
-            resources = get_resources_by_titles(used_titles)
-
-    except Exception as e:
-        print("DEBUG /api/chat RAG grounding failed:", repr(e))
-
-    # Step 3: fallback resource matching if RAG resource lookup is empty
-    if not resources:
-        try:
-            resources = get_matching_resources(final_emotion, final_risk)
-        except Exception as e:
-            print("DEBUG /api/chat fallback resource match failed:", repr(e))
-            resources = []
-
+    matching_resources = get_matching_resources(final_emotion, final_risk)
     timestamp = datetime.now(timezone.utc)
 
     user_message_doc = {
@@ -189,13 +99,10 @@ def chat(payload: ChatRequest):
         "intensity": final_intensity,
         "risk_level": final_risk,
         "reasoning": final_reasoning,
-        "resources": resources,
-        "used_titles": used_titles,
-        "retrieved_chunks": summarize_retrieved_chunks(retrieved_chunks),
+        "resources": matching_resources,
         "timestamp": timestamp
     }
 
-    # Step 4: save to session
     if session_id:
         try:
             session_object_id = ObjectId(session_id)
@@ -243,9 +150,7 @@ def chat(payload: ChatRequest):
         "risk_level": final_risk,
         "reasoning": final_reasoning,
         "reply": final_reply,
-        "resources": resources,
-        "used_resources": used_titles,
-        "retrieved_chunks": summarize_retrieved_chunks(retrieved_chunks),
+        "resources": matching_resources,
         "timestamp": timestamp.isoformat()
     }
 
@@ -255,7 +160,15 @@ def get_resources():
     resources = []
 
     for item in resource_collection.find():
-        resources.append(serialize_resource(item))
+        resources.append({
+            "id": str(item["_id"]),
+            "title": item["title"],
+            "type": item["type"],
+            "url": item["url"],
+            "description": item.get("description", ""),
+            "moods": item.get("moods", []),
+            "risk_levels": item.get("risk_levels", [])
+        })
 
     return {"resources": resources}
 
@@ -301,8 +214,6 @@ def get_chat_session(session_id: str):
             "risk_level": msg.get("risk_level"),
             "reasoning": msg.get("reasoning"),
             "resources": msg.get("resources", []),
-            "used_titles": msg.get("used_titles", []),
-            "retrieved_chunks": msg.get("retrieved_chunks", []),
             "timestamp": msg["timestamp"].isoformat() if msg.get("timestamp") else None
         })
 
