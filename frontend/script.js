@@ -3,7 +3,6 @@ const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
 
 const recordSttBtn = document.getElementById("record-stt-btn");
-const playTtsBtn = document.getElementById("play-tts-btn");
 const recordStsBtn = document.getElementById("record-sts-btn");
 const recordingStatus = document.getElementById("recording-status");
 
@@ -11,7 +10,6 @@ const moodValue = document.getElementById("mood-value");
 const riskValue = document.getElementById("risk-value");
 const resourceList = document.getElementById("resource-list");
 
-let lastBotReply = "";
 let mediaRecorder = null;
 let audioChunks = [];
 let currentMode = null;
@@ -69,7 +67,6 @@ function updateResources(riskLevel, emotion) {
 
 async function sendMessage() {
   const message = messageInput.value.trim();
-
   if (!message) return;
 
   addMessage(message, "user");
@@ -85,7 +82,7 @@ async function sendMessage() {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to send chat message");
+      throw new Error(`Chat failed: ${response.status}`);
     }
 
     const data = await response.json();
@@ -95,49 +92,12 @@ async function sendMessage() {
     const riskLevel = data.risk_level || "low";
 
     addMessage(reply, "bot");
-
     moodValue.textContent = emotion;
     riskValue.textContent = riskLevel;
     updateResources(riskLevel, emotion);
-
-    lastBotReply = reply;
   } catch (error) {
     console.error("Chat error:", error);
     addMessage("Sorry, I couldn’t connect to the server.", "bot");
-  }
-}
-
-async function requestTtsAndPlay(text) {
-  if (!text) return;
-
-  try {
-    recordingStatus.textContent = "Generating TTS audio...";
-
-    const response = await fetch("http://127.0.0.1:8001/api/tts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ text })
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to get TTS audio");
-    }
-
-    const audioBlob = await response.blob();
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
-
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      recordingStatus.textContent = "Idle";
-    };
-
-    await audio.play();
-  } catch (error) {
-    console.error("TTS error:", error);
-    recordingStatus.textContent = "TTS failed";
   }
 }
 
@@ -154,7 +114,9 @@ async function sendAudioForStt(audioBlob) {
     });
 
     if (!response.ok) {
-      throw new Error("Failed STT request");
+      const errorText = await response.text();
+      console.error("STT error response:", errorText);
+      throw new Error(`STT failed: ${response.status}`);
     }
 
     const data = await response.json();
@@ -170,7 +132,7 @@ async function sendAudioForStt(audioBlob) {
 
 async function sendAudioForSts(audioBlob) {
   try {
-    recordingStatus.textContent = "Sending audio to speech-to-speech...";
+    recordingStatus.textContent = "Sending audio to STS...";
 
     const formData = new FormData();
     formData.append("file", audioBlob, "recording.webm");
@@ -181,11 +143,18 @@ async function sendAudioForSts(audioBlob) {
     });
 
     if (!response.ok) {
-      throw new Error("Failed STS request");
+      const errorText = await response.text();
+      console.error("STS error response:", errorText);
+      throw new Error(`STS failed: ${response.status}`);
     }
 
-    const convertedBlob = await response.blob();
-    const audioUrl = URL.createObjectURL(convertedBlob);
+    const audioBlobResponse = await response.blob();
+
+    if (audioBlobResponse.size === 0) {
+      throw new Error("Received empty audio blob from STS");
+    }
+
+    const audioUrl = URL.createObjectURL(audioBlobResponse);
     const audio = new Audio(audioUrl);
 
     audio.onended = () => {
@@ -193,6 +162,13 @@ async function sendAudioForSts(audioBlob) {
       recordingStatus.textContent = "Idle";
     };
 
+    audio.onerror = (event) => {
+      console.error("STS playback error:", event);
+      recordingStatus.textContent = "STS playback failed";
+      URL.revokeObjectURL(audioUrl);
+    };
+
+    recordingStatus.textContent = "Playing transformed audio...";
     await audio.play();
   } catch (error) {
     console.error("STS error:", error);
@@ -207,7 +183,11 @@ async function startRecording(mode) {
     currentMode = mode;
     audioChunks = [];
 
-    mediaRecorder = new MediaRecorder(stream);
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
@@ -216,8 +196,7 @@ async function startRecording(mode) {
     };
 
     mediaRecorder.onstop = async () => {
-      const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-
+      const audioBlob = new Blob(audioChunks, { type: mimeType });
       stream.getTracks().forEach((track) => track.stop());
 
       if (currentMode === "stt") {
@@ -247,10 +226,6 @@ messageInput.addEventListener("keypress", (event) => {
   if (event.key === "Enter") {
     sendMessage();
   }
-});
-
-playTtsBtn.addEventListener("click", async () => {
-  await requestTtsAndPlay(lastBotReply);
 });
 
 recordSttBtn.addEventListener("click", async () => {
