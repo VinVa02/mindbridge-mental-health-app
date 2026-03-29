@@ -5,6 +5,8 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from bson import ObjectId
+from app.database import chat_session_collection, resource_collection
 from app.services.resource_service import get_matching_resources
 from app.services.mood_service import assess_mood_with_gemini
 from app.database import chat_collection, resource_collection
@@ -43,6 +45,7 @@ def health_check():
 @app.post("/api/chat")
 def chat(payload: ChatRequest):
     message = payload.message.strip()
+    session_id = payload.session_id
 
     if not message:
         return {"error": "Message is required"}
@@ -74,31 +77,62 @@ def chat(payload: ChatRequest):
         final_reasoning = "Fallback analyzer used."
         final_reply = fallback["reply"]
 
-    matching_resources = get_matching_resources(final_emotion, final_risk)
+    timestamp = datetime.now(timezone.utc)
 
-    chat_document = {
-        "user_message": message,
+    user_message_doc = {
+        "sender": "user",
+        "text": message,
         "emotion": final_emotion,
         "intensity": final_intensity,
         "risk_level": final_risk,
         "reasoning": final_reasoning,
-        "reply": final_reply,
-        "resources": matching_resources,
-        "created_at": datetime.now(timezone.utc)
+        "timestamp": timestamp
     }
 
-    insert_result = chat_collection.insert_one(chat_document)
+    bot_message_doc = {
+        "sender": "bot",
+        "text": final_reply,
+        "emotion": final_emotion,
+        "intensity": final_intensity,
+        "risk_level": final_risk,
+        "reasoning": final_reasoning,
+        "timestamp": timestamp
+    }
+
+    if session_id:
+        chat_session_collection.update_one(
+            {"_id": ObjectId(session_id)},
+            {
+                "$push": {
+                    "messages": {
+                        "$each": [user_message_doc, bot_message_doc]
+                    }
+                },
+                "$set": {
+                    "updated_at": timestamp
+                }
+            }
+        )
+        current_session_id = session_id
+    else:
+        session_doc = {
+            "title": message[:40],
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "messages": [user_message_doc, bot_message_doc]
+        }
+        insert_result = chat_session_collection.insert_one(session_doc)
+        current_session_id = str(insert_result.inserted_id)
 
     return {
-        "id": str(insert_result.inserted_id),
+        "session_id": current_session_id,
         "user_message": message,
         "emotion": final_emotion,
         "intensity": final_intensity,
         "risk_level": final_risk,
         "reasoning": final_reasoning,
         "reply": final_reply,
-        "resources": matching_resources,
-        "timestamp": chat_document["created_at"].isoformat()
+        "timestamp": timestamp.isoformat()
     }
 
 
@@ -197,3 +231,45 @@ def get_resources():
         })
 
     return {"resources": resources}
+
+@app.get("/api/chat-sessions")
+def get_chat_sessions():
+    sessions = []
+
+    for session in chat_session_collection.find().sort("updated_at", -1):
+        sessions.append({
+            "id": str(session["_id"]),
+            "title": session.get("title", "New Chat"),
+            "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
+            "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
+            "message_count": len(session.get("messages", []))
+        })
+
+    return {"sessions": sessions}
+
+@app.get("/api/chat-sessions/{session_id}")
+def get_chat_session(session_id: str):
+    session = chat_session_collection.find_one({"_id": ObjectId(session_id)})
+
+    if not session:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+
+    messages = []
+    for msg in session.get("messages", []):
+        messages.append({
+            "sender": msg["sender"],
+            "text": msg["text"],
+            "emotion": msg.get("emotion"),
+            "intensity": msg.get("intensity"),
+            "risk_level": msg.get("risk_level"),
+            "reasoning": msg.get("reasoning"),
+            "timestamp": msg["timestamp"].isoformat() if msg.get("timestamp") else None
+        })
+
+    return {
+        "id": str(session["_id"]),
+        "title": session.get("title", "New Chat"),
+        "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
+        "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
+        "messages": messages
+    }
