@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 from google import genai
 
@@ -10,22 +11,32 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
-def generate_support_reply(user_message: str, emotion: str, risk_level: str) -> str:
+def analyze_message_with_gemini(user_message: str) -> dict:
     prompt = f"""
-You are a calm, supportive mental wellness assistant for a hackathon MVP called MindBridge.
+You are a mental wellness support assistant.
+Analyze the user's message and return ONLY valid JSON.
 
-User message: "{user_message}"
-Detected emotion: {emotion}
-Detected risk level: {risk_level}
+User message:
+"{user_message}"
 
-Instructions:
-- Respond with empathy and emotional support.
-- Keep the response short: 2 to 4 sentences.
-- Do not sound robotic.
-- Do not diagnose medical conditions.
-- Do not mention being an AI model.
-- Encourage the user to share more if appropriate.
-- If risk level is high, encourage immediate support from a trusted person or crisis helpline.
+Schema:
+{{
+  "mood": "string",
+  "risk_level": "low|medium|high|crisis",
+  "confidence": 0.0,
+  "needs_resources": true,
+  "resource_tags": ["string"],
+  "reasoning_short": "short explanation",
+  "reply": "empathetic supportive reply"
+}}
+
+Rules:
+- Detect emotional state from tone, wording, and intensity.
+- Mark risk_level="crisis" if there are strong signs of self-harm or suicide.
+- Mark risk_level="high" if there is severe hopelessness or distress.
+- Keep reasoning_short brief and non-judgmental.
+- reply should be warm, safe, and concise.
+- Return JSON only. No extra text.
 """
 
     response = client.models.generate_content(
@@ -33,4 +44,20 @@ Instructions:
         contents=prompt
     )
 
-    return response.text.strip()
+    text = response.text.strip()
+
+    # ✅ Safe JSON parsing with fallback
+    try:
+        data = json.loads(text)
+    except Exception:
+        data = {
+            "mood": "unknown",
+            "risk_level": "low",
+            "confidence": 0.5,
+            "needs_resources": False,
+            "resource_tags": [],
+            "reasoning_short": "Fallback due to parsing error",
+            "reply": "I'm here with you. Do you want to share more about what's on your mind?"
+        }
+
+    return data

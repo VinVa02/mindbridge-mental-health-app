@@ -5,10 +5,11 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.database import chat_collection
+from app.services.resource_service import get_matching_resources
+from app.services.mood_service import assess_mood_with_gemini
+from app.database import chat_collection, resource_collection
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
-from app.services.gemini_service import generate_support_reply
 from app.services.elevenlabs_service import (
     generate_tts_audio,
     transcribe_audio,
@@ -46,25 +47,43 @@ def chat(payload: ChatRequest):
     if not message:
         return {"error": "Message is required"}
 
-    result = analyze_message(message)
+    fallback = analyze_message(message)
 
-    if result["risk_level"] == "high":
-        final_reply = result["reply"]
-    else:
-        try:
-            final_reply = generate_support_reply(
-                user_message=message,
-                emotion=result["emotion"],
-                risk_level=result["risk_level"]
-            )
-        except Exception:
-            final_reply = result["reply"]
+    try:
+        mood_result = assess_mood_with_gemini(message)
+
+        final_emotion = mood_result.mood
+        final_intensity = mood_result.intensity
+        final_risk = mood_result.risk_level
+        final_reasoning = mood_result.reasoning
+        final_reply = mood_result.reply
+
+        if fallback["risk_level"] == "high":
+            final_emotion = fallback["emotion"]
+            final_intensity = 5
+            final_risk = fallback["risk_level"]
+            final_reasoning = "Keyword safety override triggered."
+            final_reply = fallback["reply"]
+
+    except Exception as e:
+        print("DEBUG /api/chat Gemini mood assessment failed:", repr(e))
+
+        final_emotion = fallback["emotion"]
+        final_intensity = 3
+        final_risk = fallback["risk_level"]
+        final_reasoning = "Fallback analyzer used."
+        final_reply = fallback["reply"]
+
+    matching_resources = get_matching_resources(final_emotion, final_risk)
 
     chat_document = {
         "user_message": message,
-        "emotion": result["emotion"],
-        "risk_level": result["risk_level"],
+        "emotion": final_emotion,
+        "intensity": final_intensity,
+        "risk_level": final_risk,
+        "reasoning": final_reasoning,
         "reply": final_reply,
+        "resources": matching_resources,
         "created_at": datetime.now(timezone.utc)
     }
 
@@ -73,9 +92,12 @@ def chat(payload: ChatRequest):
     return {
         "id": str(insert_result.inserted_id),
         "user_message": message,
-        "emotion": result["emotion"],
-        "risk_level": result["risk_level"],
+        "emotion": final_emotion,
+        "intensity": final_intensity,
+        "risk_level": final_risk,
+        "reasoning": final_reasoning,
         "reply": final_reply,
+        "resources": matching_resources,
         "timestamp": chat_document["created_at"].isoformat()
     }
 
@@ -158,3 +180,20 @@ async def speech_to_speech(file: UploadFile = File(...)):
             status_code=500,
             content={"error": f"STS failed: {str(e)}"}
         )
+
+@app.get("/api/resources")
+def get_resources():
+    resources = []
+
+    for item in resource_collection.find():
+        resources.append({
+            "id": str(item["_id"]),
+            "title": item["title"],
+            "type": item["type"],
+            "url": item["url"],
+            "description": item.get("description", ""),
+            "moods": item.get("moods", []),
+            "risk_levels": item.get("risk_levels", [])
+        })
+
+    return {"resources": resources}
