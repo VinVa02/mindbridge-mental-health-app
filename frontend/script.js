@@ -8,7 +8,12 @@ const moodValue = document.getElementById("mood-value");
 const riskValue = document.getElementById("risk-value");
 const resourceList = document.getElementById("resource-list");
 
+const historyList = document.getElementById("history-list");
+const newChatBtn = document.getElementById("new-chat-btn");
+
 let lastBotReply = "";
+let currentChatMessages = [];
+let chatHistory = [];
 
 function addMessage(text, sender) {
   const messageDiv = document.createElement("div");
@@ -20,8 +25,24 @@ function addMessage(text, sender) {
 
   messageDiv.appendChild(bubbleDiv);
   chatBox.appendChild(messageDiv);
-
   chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function clearChatBox() {
+  chatBox.innerHTML = "";
+}
+
+function renderChat(messages) {
+  clearChatBox();
+
+  if (!messages || messages.length === 0) {
+    addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
+    return;
+  }
+
+  messages.forEach((msg) => {
+    addMessage(msg.text, msg.sender);
+  });
 }
 
 function updateResources(riskLevel, emotion) {
@@ -35,7 +56,7 @@ function updateResources(riskLevel, emotion) {
       "Contact a mental health professional immediately",
       "If in danger, call emergency services or crisis hotline"
     ];
-  } else if (emotion === "sadness") {
+  } else if (emotion === "sad") {
     resources = [
       "Try journaling for 5 minutes",
       "Take a short walk outside",
@@ -45,19 +66,7 @@ function updateResources(riskLevel, emotion) {
     resources = [
       "Practice box breathing for 2 minutes",
       "Step away from screens briefly",
-      "Ground yourself using 5-4-3-2-1 technique"
-    ];
-  } else if (emotion === "anger") {
-    resources = [
-      "Pause before reacting",
-      "Take a few deep breaths",
-      "Step away for a short break"
-    ];
-  } else if (emotion === "stress") {
-    resources = [
-      "Break one task into smaller steps",
-      "Drink water and stretch for 2 minutes",
-      "Write down the top 3 things on your mind"
+      "Ground yourself using the 5-4-3-2-1 technique"
     ];
   } else {
     resources = [
@@ -67,11 +76,119 @@ function updateResources(riskLevel, emotion) {
     ];
   }
 
-  resources.forEach(item => {
+  resources.forEach((item) => {
     const li = document.createElement("li");
     li.textContent = item;
     resourceList.appendChild(li);
   });
+}
+
+function formatTimestamp(timestamp) {
+  if (!timestamp) return "Saved chat";
+
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Saved chat";
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function setActiveHistoryItem(activeIndex) {
+  const items = document.querySelectorAll(".history-item");
+  items.forEach((item, index) => {
+    if (index === activeIndex) {
+      item.classList.add("active");
+    } else {
+      item.classList.remove("active");
+    }
+  });
+}
+
+function renderHistoryList() {
+  historyList.innerHTML = "";
+
+  if (chatHistory.length === 0) {
+    const emptyDiv = document.createElement("div");
+    emptyDiv.classList.add("history-empty");
+    emptyDiv.textContent = "No saved chats yet.";
+    historyList.appendChild(emptyDiv);
+    return;
+  }
+
+  chatHistory.forEach((chat, index) => {
+    const historyItem = document.createElement("div");
+    historyItem.classList.add("history-item");
+
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    title.textContent = chat.title;
+
+    const subtitle = document.createElement("div");
+    subtitle.classList.add("history-subtitle");
+    subtitle.textContent = `${chat.emotion || "unknown"} • ${formatTimestamp(chat.timestamp)}`;
+
+    historyItem.appendChild(title);
+    historyItem.appendChild(subtitle);
+
+    historyItem.addEventListener("click", () => {
+      currentChatMessages = chat.messages;
+      renderChat(currentChatMessages);
+
+      moodValue.textContent = chat.emotion || "Unknown";
+      riskValue.textContent = chat.risk_level || "Low";
+      updateResources(chat.risk_level || "low", chat.emotion || "unknown");
+
+      lastBotReply = chat.reply || "";
+      setActiveHistoryItem(index);
+    });
+
+    historyList.appendChild(historyItem);
+  });
+}
+
+async function loadHistory() {
+  try {
+    const response = await fetch("http://127.0.0.1:8001/api/chats");
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch chat history");
+    }
+
+    const data = await response.json();
+    const chats = data.chats || [];
+
+    chatHistory = chats.map((item) => ({
+      id: item.id,
+      title: item.user_message
+        ? `${item.user_message.slice(0, 25)}${item.user_message.length > 25 ? "..." : ""}`
+        : "Previous chat",
+      messages: [
+        { sender: "user", text: item.user_message || "" },
+        { sender: "bot", text: item.reply || "" }
+      ],
+      emotion: item.emotion || "unknown",
+      risk_level: item.risk_level || "low",
+      reply: item.reply || "",
+      timestamp: item.timestamp || ""
+    }));
+
+    renderHistoryList();
+  } catch (error) {
+    console.error("Error loading history:", error);
+
+    historyList.innerHTML = "";
+    const errorDiv = document.createElement("div");
+    errorDiv.classList.add("history-empty");
+    errorDiv.textContent = "Could not load chat history.";
+    historyList.appendChild(errorDiv);
+  }
 }
 
 async function sendMessage() {
@@ -80,6 +197,7 @@ async function sendMessage() {
   if (!message) return;
 
   addMessage(message, "user");
+  currentChatMessages.push({ sender: "user", text: message });
   messageInput.value = "";
 
   try {
@@ -91,6 +209,10 @@ async function sendMessage() {
       body: JSON.stringify({ message })
     });
 
+    if (!response.ok) {
+      throw new Error("Failed to send message");
+    }
+
     const data = await response.json();
 
     const reply = data.reply || "I’m here with you.";
@@ -98,17 +220,33 @@ async function sendMessage() {
     const riskLevel = data.risk_level || "low";
 
     addMessage(reply, "bot");
+    currentChatMessages.push({ sender: "bot", text: reply });
 
     moodValue.textContent = emotion;
     riskValue.textContent = riskLevel;
+    updateResources(riskLevel, emotion);
     lastBotReply = reply;
 
-    updateResources(riskLevel, emotion);
+    await loadHistory();
   } catch (error) {
     console.error("Error:", error);
     addMessage("Sorry, I couldn’t connect to the server.", "bot");
   }
 }
+
+function startNewChat() {
+  currentChatMessages = [];
+  clearChatBox();
+  addMessage("Hi, I’m here with you. How are you feeling today?", "bot");
+
+  moodValue.textContent = "Unknown";
+  riskValue.textContent = "Low";
+  updateResources("low", "unknown");
+  lastBotReply = "";
+  setActiveHistoryItem(-1);
+}
+
+newChatBtn.addEventListener("click", startNewChat);
 
 sendBtn.addEventListener("click", sendMessage);
 
@@ -162,3 +300,6 @@ playAudioBtn.addEventListener("click", () => {
 
   window.speechSynthesis.speak(utterance);
 });
+
+updateResources("low", "unknown");
+loadHistory();
