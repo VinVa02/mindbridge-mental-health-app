@@ -90,7 +90,7 @@ function renderMessages(messages) {
   }
 
   messages.forEach((msg) => {
-    addMessage(msg.text, msg.sender);
+    addMessage(msg.text || "", msg.sender || "bot");
   });
 
   scrollChatToBottom();
@@ -160,7 +160,9 @@ function renderResourceGroups(resources) {
       card.classList.add("resource-card");
 
       const safeUrl = item.url && item.url.trim() ? item.url : "#";
-      const metaLine = item.file_name ? `<div class="resource-description">${item.file_name}</div>` : "";
+      const metaLine = item.file_name
+        ? `<div class="resource-description">${item.file_name}</div>`
+        : "";
       const descriptionLine = item.description
         ? `<div class="resource-description">${item.description}</div>`
         : "";
@@ -198,6 +200,7 @@ function updateUiBusyState(busy, statusText = "Idle") {
   voiceChatBtn.disabled = busy;
   messageInput.disabled = busy;
   recordingStatus.textContent = statusText;
+  messageInput.placeholder = busy ? "Please wait..." : "Message MindBridge...";
 
   if (busy) {
     sendBtn.textContent = "Sending...";
@@ -209,6 +212,7 @@ function updateUiBusyState(busy, statusText = "Idle") {
 async function loadSessions() {
   try {
     const response = await fetch(`${API_BASE}/api/chat-sessions`);
+
     if (!response.ok) {
       throw new Error(`Failed to load sessions: ${response.status}`);
     }
@@ -261,6 +265,7 @@ async function loadSessions() {
 async function loadSessionMessages(sessionId) {
   try {
     const response = await fetch(`${API_BASE}/api/chat-sessions/${sessionId}`);
+
     if (!response.ok) {
       throw new Error(`Failed to load session: ${response.status}`);
     }
@@ -348,6 +353,7 @@ async function playTtsAudio(text) {
 
   const audioUrl = URL.createObjectURL(audioBlob);
   const audio = new Audio(audioUrl);
+  audio.preload = "auto";
 
   return new Promise((resolve, reject) => {
     audio.onended = () => {
@@ -355,17 +361,21 @@ async function playTtsAudio(text) {
       resolve();
     };
 
-    audio.onerror = (event) => {
+    audio.onerror = () => {
       URL.revokeObjectURL(audioUrl);
-      reject(event);
+      reject(new Error("Browser could not play the returned audio."));
     };
 
-    audio.play().catch(reject);
+    audio.play().catch((err) => {
+      URL.revokeObjectURL(audioUrl);
+      reject(err);
+    });
   });
 }
 
 async function sendMessage() {
   const message = messageInput.value.trim();
+
   if (!message || isSending) return;
 
   addMessage(message, "user");
@@ -426,15 +436,29 @@ async function handleVoiceChat(audioBlob) {
     updateSidePanelFromResponse(data);
     await loadSessions();
 
-    updateUiBusyState(true, "Playing audio reply...");
-    await playTtsAudio(data.reply || "I’m here with you.");
+    try {
+      updateUiBusyState(true, "Playing audio reply...");
+      await playTtsAudio(data.reply || "I’m here with you.");
+    } catch (ttsError) {
+      console.error("TTS playback error:", ttsError);
+      addMessage("Your response was generated, but the audio reply could not play.", "bot");
+    }
 
     messageInput.value = "";
     autoResizeTextarea();
   } catch (error) {
     console.error("Voice chat error:", error);
     removeTypingMessage();
-    addMessage("Sorry, voice chat failed.", "bot");
+
+    const errorMessage = error?.message || "";
+    if (errorMessage.includes("STT failed")) {
+      addMessage("Speech transcription failed on the server.", "bot");
+    } else if (errorMessage.includes("No transcript received")) {
+      addMessage("I could not hear enough speech to transcribe.", "bot");
+    } else {
+      addMessage("Sorry, voice chat failed.", "bot");
+    }
+
     recordingStatus.textContent = "Voice chat failed";
   } finally {
     updateUiBusyState(false, "Idle");
@@ -464,6 +488,13 @@ async function startVoiceRecording() {
       if (event.data.size > 0) {
         audioChunks.push(event.data);
       }
+    };
+
+    mediaRecorder.onerror = (event) => {
+      console.error("MediaRecorder error:", event.error);
+      isRecording = false;
+      voiceChatBtn.classList.remove("recording");
+      recordingStatus.textContent = "Recording failed";
     };
 
     mediaRecorder.onstop = async () => {
