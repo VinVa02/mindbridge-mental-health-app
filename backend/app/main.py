@@ -1,15 +1,14 @@
 from datetime import datetime, timezone
 from io import BytesIO
 
-from fastapi import FastAPI, File, Form, UploadFile
+from bson import ObjectId
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from bson import ObjectId
 from app.database import chat_session_collection, resource_collection
 from app.services.resource_service import get_matching_resources
 from app.services.mood_service import assess_mood_with_gemini
-from app.database import chat_collection, resource_collection
 from app.schemas import ChatRequest
 from app.services.analyzer import analyze_message
 from app.services.elevenlabs_service import (
@@ -45,7 +44,7 @@ def health_check():
 @app.post("/api/chat")
 def chat(payload: ChatRequest):
     message = payload.message.strip()
-    session_id = payload.session_id
+    session_id = getattr(payload, "session_id", None)
 
     if not message:
         return {"error": "Message is required"}
@@ -77,6 +76,7 @@ def chat(payload: ChatRequest):
         final_reasoning = "Fallback analyzer used."
         final_reply = fallback["reply"]
 
+    matching_resources = get_matching_resources(final_emotion, final_risk)
     timestamp = datetime.now(timezone.utc)
 
     user_message_doc = {
@@ -96,12 +96,26 @@ def chat(payload: ChatRequest):
         "intensity": final_intensity,
         "risk_level": final_risk,
         "reasoning": final_reasoning,
+        "resources": matching_resources,
         "timestamp": timestamp
     }
 
     if session_id:
+        try:
+            session_object_id = ObjectId(session_id)
+        except Exception:
+            return JSONResponse(status_code=400, content={"error": "Invalid session_id"})
+
+        existing_session = chat_session_collection.find_one({
+            "_id": session_object_id,
+            "archived": {"$ne": True}
+        })
+
+        if not existing_session:
+            return JSONResponse(status_code=404, content={"error": "Session not found"})
+
         chat_session_collection.update_one(
-            {"_id": ObjectId(session_id)},
+            {"_id": session_object_id},
             {
                 "$push": {
                     "messages": {
@@ -119,6 +133,7 @@ def chat(payload: ChatRequest):
             "title": message[:40],
             "created_at": timestamp,
             "updated_at": timestamp,
+            "archived": False,
             "messages": [user_message_doc, bot_message_doc]
         }
         insert_result = chat_session_collection.insert_one(session_doc)
@@ -132,25 +147,109 @@ def chat(payload: ChatRequest):
         "risk_level": final_risk,
         "reasoning": final_reasoning,
         "reply": final_reply,
+        "resources": matching_resources,
         "timestamp": timestamp.isoformat()
     }
 
 
-@app.get("/api/chats")
-def get_chats():
-    chats = []
+@app.get("/api/resources")
+def get_resources():
+    resources = []
 
-    for chat in chat_collection.find().sort("created_at", -1):
-        chats.append({
-            "id": str(chat["_id"]),
-            "user_message": chat["user_message"],
-            "emotion": chat["emotion"],
-            "risk_level": chat["risk_level"],
-            "reply": chat["reply"],
-            "timestamp": chat["created_at"].isoformat() if chat.get("created_at") else None
+    for item in resource_collection.find():
+        resources.append({
+            "id": str(item["_id"]),
+            "title": item["title"],
+            "type": item["type"],
+            "url": item["url"],
+            "description": item.get("description", ""),
+            "moods": item.get("moods", []),
+            "risk_levels": item.get("risk_levels", [])
         })
 
-    return {"chats": chats}
+    return {"resources": resources}
+
+
+@app.get("/api/chat-sessions")
+def get_chat_sessions():
+    sessions = []
+
+    for session in chat_session_collection.find(
+        {"archived": {"$ne": True}}
+    ).sort("updated_at", -1):
+        sessions.append({
+            "id": str(session["_id"]),
+            "title": session.get("title", "New Chat"),
+            "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
+            "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
+            "message_count": len(session.get("messages", []))
+        })
+
+    return {"sessions": sessions}
+
+
+@app.get("/api/chat-sessions/{session_id}")
+def get_chat_session(session_id: str):
+    try:
+        session = chat_session_collection.find_one({
+            "_id": ObjectId(session_id),
+            "archived": {"$ne": True}
+        })
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
+
+    if not session:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+
+    messages = []
+    for msg in session.get("messages", []):
+        messages.append({
+            "sender": msg["sender"],
+            "text": msg["text"],
+            "emotion": msg.get("emotion"),
+            "intensity": msg.get("intensity"),
+            "risk_level": msg.get("risk_level"),
+            "reasoning": msg.get("reasoning"),
+            "resources": msg.get("resources", []),
+            "timestamp": msg["timestamp"].isoformat() if msg.get("timestamp") else None
+        })
+
+    return {
+        "id": str(session["_id"]),
+        "title": session.get("title", "New Chat"),
+        "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
+        "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
+        "messages": messages
+    }
+
+
+@app.patch("/api/chat-sessions/{session_id}/archive")
+def archive_chat_session(session_id: str):
+    try:
+        result = chat_session_collection.update_one(
+            {"_id": ObjectId(session_id)},
+            {"$set": {"archived": True, "updated_at": datetime.now(timezone.utc)}}
+        )
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
+
+    if result.matched_count == 0:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+
+    return {"message": "Session archived successfully"}
+
+
+@app.delete("/api/chat-sessions/{session_id}")
+def delete_chat_session(session_id: str):
+    try:
+        result = chat_session_collection.delete_one({"_id": ObjectId(session_id)})
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid session id"})
+
+    if result.deleted_count == 0:
+        return JSONResponse(status_code=404, content={"error": "Session not found"})
+
+    return {"message": "Session deleted successfully"}
 
 
 @app.post("/api/tts")
@@ -214,62 +313,3 @@ async def speech_to_speech(file: UploadFile = File(...)):
             status_code=500,
             content={"error": f"STS failed: {str(e)}"}
         )
-
-@app.get("/api/resources")
-def get_resources():
-    resources = []
-
-    for item in resource_collection.find():
-        resources.append({
-            "id": str(item["_id"]),
-            "title": item["title"],
-            "type": item["type"],
-            "url": item["url"],
-            "description": item.get("description", ""),
-            "moods": item.get("moods", []),
-            "risk_levels": item.get("risk_levels", [])
-        })
-
-    return {"resources": resources}
-
-@app.get("/api/chat-sessions")
-def get_chat_sessions():
-    sessions = []
-
-    for session in chat_session_collection.find().sort("updated_at", -1):
-        sessions.append({
-            "id": str(session["_id"]),
-            "title": session.get("title", "New Chat"),
-            "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
-            "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
-            "message_count": len(session.get("messages", []))
-        })
-
-    return {"sessions": sessions}
-
-@app.get("/api/chat-sessions/{session_id}")
-def get_chat_session(session_id: str):
-    session = chat_session_collection.find_one({"_id": ObjectId(session_id)})
-
-    if not session:
-        return JSONResponse(status_code=404, content={"error": "Session not found"})
-
-    messages = []
-    for msg in session.get("messages", []):
-        messages.append({
-            "sender": msg["sender"],
-            "text": msg["text"],
-            "emotion": msg.get("emotion"),
-            "intensity": msg.get("intensity"),
-            "risk_level": msg.get("risk_level"),
-            "reasoning": msg.get("reasoning"),
-            "timestamp": msg["timestamp"].isoformat() if msg.get("timestamp") else None
-        })
-
-    return {
-        "id": str(session["_id"]),
-        "title": session.get("title", "New Chat"),
-        "created_at": session["created_at"].isoformat() if session.get("created_at") else None,
-        "updated_at": session["updated_at"].isoformat() if session.get("updated_at") else None,
-        "messages": messages
-    }
