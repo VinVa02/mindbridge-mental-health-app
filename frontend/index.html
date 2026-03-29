@@ -1,89 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MindBridge</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
-  <div class="app-container">
-    <section class="chat-section">
-      <header class="chat-header">
-        <h1>MindBridge</h1>
-        <p>Your mental wellness support space</p>
-      </header>
-
-      <div id="chat-box" class="chat-box">
-        <div class="message bot">
-          <div class="bubble">
-            Hi, I’m here with you. How are you feeling today?
-          </div>
+  <div class="app-shell">
+    <aside class="chat-sidebar">
+      <div class="sidebar-header">
+        <div>
+          <p class="sidebar-label">MindBridge</p>
+          <h2>Chats</h2>
         </div>
+        <button id="new-chat-btn" class="new-chat-btn">+ New Chat</button>
       </div>
 
-      <div class="input-area">
-        <input type="text" id="message-input" placeholder="Type your thoughts here..." />
-        <button id="send-btn" class="send-btn">Send</button>
-      </div>
-
-      <div class="voice-controls">
-        <button id="record-stt-btn" class="voice-btn">🎤 Record for STT</button>
-        <button id="record-sts-btn" class="voice-btn">🗣️ Voice Chat</button>
-      </div>
-
-      <p id="recording-status" class="recording-status">Idle</p>
-    </section>
-
-    <aside class="side-panel">
-      <div class="panel-card">
-        <h2>Current Mood</h2>
-        <p id="mood-value">Unknown</p>
-      </div>
-
-      <div class="panel-card">
-        <h2>Risk Level</h2>
-        <p id="risk-value">Low</p>
-      </div>
-
-      <div class="panel-card resources-card">
-        <div class="resources-header">
-          <h2>Helpful Resources</h2>
-          <span class="resources-subtitle">Suggested for your current state</span>
-        </div>
-
-        <div id="resource-list" class="resource-list">
-          <div class="resource-item fallback-resource">
-            <div class="resource-top">
-              <span class="resource-type-badge">Tip</span>
-            </div>
-            <h3 class="resource-title">Take 3 slow deep breaths</h3>
-            <p class="resource-description">Pause for a moment and focus on your breathing.</p>
-          </div>
-
-          <div class="resource-item fallback-resource">
-            <div class="resource-top">
-              <span class="resource-type-badge">Tip</span>
-            </div>
-            <h3 class="resource-title">Drink water</h3>
-            <p class="resource-description">Small physical resets can help ground you.</p>
-          </div>
-
-          <div class="resource-item fallback-resource">
-            <div class="resource-top">
-              <span class="resource-type-badge">Tip</span>
-            </div>
-            <h3 class="resource-title">Write down one thing bothering you</h3>
-            <p class="resource-description">Naming the thought can make it feel more manageable.</p>
-          </div>
-        </div>
-      </div>
+      <div id="session-list" class="session-list"></div>
     </aside>
+
+    <main class="main-panel">
+      <section class="chat-section">
+        <header class="chat-header">
+          <div>
+            <h1>MindBridge</h1>
+            <p>Your mental wellness support space</p>
+          </div>
+          <div class="status-badge" id="recording-status">Idle</div>
+        </header>
+
+        <div id="chat-box" class="chat-box">
+          <div class="message bot">
+            <div class="bubble">
+              Hi, I’m here with you. How are you feeling today?
+            </div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="message-input"
+              placeholder="Type what’s on your mind..."
+            />
+          </div>
+
+          <button id="voice-chat-btn" class="icon-btn voice-btn" title="Voice chat">
+            <span class="icon">🎤</span>
+          </button>
+
+          <button id="send-btn" class="send-btn">Send</button>
+        </div>
+
+        <p class="helper-text">
+          Tap the mic to speak for 5 seconds and get a spoken reply.
+        </p>
+      </section>
+
+      <aside class="side-panel">
+        <div class="panel-card mood-card">
+          <p class="panel-label">Current Mood</p>
+          <h3 id="mood-value">Unknown</h3>
+        </div>
+
+        <div class="panel-card risk-card">
+          <p class="panel-label">Risk Level</p>
+          <h3 id="risk-value">Low</h3>
+        </div>
+
+        <div class="panel-card resources-card">
+          <p class="panel-label">Helpful Resources</p>
+          <ul id="resource-list">
+            <li>Take 3 slow deep breaths</li>
+            <li>Drink water</li>
+            <li>Write down one thing bothering you</li>
+          </ul>
+        </div>
+      </aside>
+    </main>
   </div>
 
   <script src="script.js"></script>
 </body>
-
 </html>
